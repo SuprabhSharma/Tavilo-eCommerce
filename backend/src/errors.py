@@ -16,6 +16,10 @@ class InvalidToken(BooklyException):
     """User has provided an invalid or expired token"""
 
 
+class InvalidVerificationToken(BooklyException):
+    """The email verification link is invalid, expired, or already used."""
+
+
 
 
 class RevokedToken(BooklyException):
@@ -76,6 +80,14 @@ class VendorNotFound(BooklyException):
     """Vendor Not found"""
 
 
+class VendorAlreadyExists(BooklyException):
+    """User has already registered or applied for a vendor store"""
+
+
+class VendorSlugAlreadyExists(BooklyException):
+    """Vendor store slug / handle is already taken"""
+
+
 class ServiceNotFound(BooklyException):
     """Service offering not found"""
 
@@ -109,6 +121,10 @@ class UserNotFound(BooklyException):
 
 class AccountNotVerified(Exception):
     """Account not yet verified"""
+
+
+class EmailDeliveryUnavailable(BooklyException):
+    """The configured email provider could not accept a message right now."""
 
 
 
@@ -175,6 +191,16 @@ def register_all_errors(app: FastAPI):
                 "message": "Token is invalid Or expired",
                 "resolution": "Please get new token",
                 "error_code": "invalid_token",
+            },
+        ),
+    )
+    app.add_exception_handler(
+        InvalidVerificationToken,
+        create_exception_handler(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            initial_detail={
+                "message": "This email verification link is invalid or expired. Request a new link.",
+                "error_code": "invalid_verification_token",
             },
         ),
     )
@@ -274,6 +300,28 @@ def register_all_errors(app: FastAPI):
     )
 
     app.add_exception_handler(
+        VendorAlreadyExists,
+        create_exception_handler(
+            status_code=status.HTTP_409_CONFLICT,
+            initial_detail={
+                "message": "You have already registered or applied for a vendor store",
+                "error_code": "vendor_already_exists",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
+        VendorSlugAlreadyExists,
+        create_exception_handler(
+            status_code=status.HTTP_409_CONFLICT,
+            initial_detail={
+                "message": "Store handle/slug is already taken. Please choose another.",
+                "error_code": "store_handle_taken",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
         ServiceNotFound,
         create_exception_handler(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -307,6 +355,17 @@ def register_all_errors(app: FastAPI):
         ),
     )
 
+    app.add_exception_handler(
+        EmailDeliveryUnavailable,
+        create_exception_handler(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            initial_detail={
+                "message": "Email delivery is temporarily unavailable. Please try again shortly.",
+                "error_code": "email_delivery_unavailable",
+            },
+        ),
+    )
+
     @app.exception_handler(500)
     async def internal_server_error(request, exc):
 
@@ -329,4 +388,4 @@ def register_all_errors(app: FastAPI):
             },
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-        
+

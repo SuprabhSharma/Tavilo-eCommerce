@@ -26,11 +26,12 @@ async def apply_as_vendor(
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
+    from src.errors import VendorAlreadyExists
     if current_user.role != "customer":
-        raise InsufficientPermission()
+        raise VendorAlreadyExists()
     existing = await service.get_by_user_id(current_user.uid, session)
     if existing:
-        raise InsufficientPermission()  # already applied
+        raise VendorAlreadyExists()
     return await service.apply(current_user.uid, data, session)
 
 

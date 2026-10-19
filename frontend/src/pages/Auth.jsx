@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Link,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -11,6 +12,7 @@ import { CheckCircle2, LoaderCircle } from "lucide-react";
 import {
   login,
   requestPasswordReset,
+  resendVerification,
   resetPassword,
   signup,
   verifyEmail,
@@ -127,7 +129,7 @@ export function Signup() {
     try {
       setError("");
       await signup(data);
-      navigate("/login?created=1");
+      navigate("/check-email", { state: { email: data.email } });
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -193,13 +195,43 @@ export function Signup() {
   );
 }
 export function VerifyEmail() {
-  const { token } = useParams();
-  const [status, setStatus] = useState("loading");
+  const { token: tokenFromPath } = useParams();
+  const location = useLocation();
+  const [token, setToken] = useState("");
+  const [status, setStatus] = useState("ready");
+  const [error, setError] = useState("");
+
   useEffect(() => {
-    verifyEmail(token)
-      .then(() => setStatus("done"))
-      .catch(() => setStatus("error"));
-  }, [token]);
+    const tokenFromFragment = new URLSearchParams(location.hash.slice(1)).get(
+      "token",
+    );
+    const verificationToken = tokenFromFragment || tokenFromPath;
+
+    if (!verificationToken) {
+      setError("This verification link is incomplete. Request a new verification email.");
+      setStatus("error");
+      return;
+    }
+
+    setToken(verificationToken);
+    // Existing emailed links used a path token. Remove either form from the
+    // address bar before making a request, preventing referrer/history leaks.
+    window.history.replaceState(null, "", "/verify-email");
+  }, [location.hash, tokenFromPath]);
+
+  const submit = async () => {
+    try {
+      setError("");
+      setStatus("loading");
+      await verifyEmail(token);
+      setToken("");
+      setStatus("done");
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      setStatus("error");
+    }
+  };
+
   return (
     <AuthLayout>
       <div className="text-center">
@@ -213,17 +245,36 @@ export function VerifyEmail() {
           <CheckCircle2 className="mx-auto text-emerald-600" size={40} />
         )}
         {status === "error" && (
-          <p className="text-red-600">
-            This verification link is invalid or expired.
-          </p>
+          <>
+            <p className="text-red-600">{error}</p>
+            <Link
+              to="/check-email"
+              className="mt-5 inline-block text-sm font-semibold text-brand-600"
+            >
+              Request a new verification email
+            </Link>
+          </>
         )}
         <h1 className="mt-5 text-xl font-bold">
-          {status === "done"
-            ? "Email verified"
+          {status === "ready"
+            ? "Verify your email"
+            : status === "done"
+            ? "Account created and email verified"
             : status === "loading"
               ? "Verifying your email…"
               : "Verification failed"}
         </h1>
+        {status === "ready" && (
+          <>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Confirm that you want to verify this email address. This link can
+              only be used once.
+            </p>
+            <Button className="mt-5" onClick={submit}>
+              Verify email address
+            </Button>
+          </>
+        )}
         {status === "done" && (
           <Link
             to="/login"
@@ -233,6 +284,69 @@ export function VerifyEmail() {
           </Link>
         )}
       </div>
+    </AuthLayout>
+  );
+}
+
+export function CheckEmail() {
+  const location = useLocation();
+  const {
+    register,
+    handleSubmit,
+    formState: { isSubmitting },
+  } = useForm({ defaultValues: { email: location.state?.email || "" } });
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async ({ email }) => {
+    try {
+      setError("");
+      await resendVerification(email);
+      setSent(true);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
+  return (
+    <AuthLayout>
+      <div className="text-center">
+        <CheckCircle2 className="mx-auto text-brand-600" size={40} />
+        <h1 className="mt-5 text-xl font-bold">Check your email</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Your Tavilo account is not created yet. Open the verification link to
+          finish creating it before signing in.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit(submit)} className="mt-6 space-y-4">
+        <Input
+          label="Email"
+          type="email"
+          autoComplete="email"
+          {...register("email", { required: "Email is required" })}
+        />
+        {sent && (
+          <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+            If a pending signup exists, a fresh verification link is on its way.
+          </p>
+        )}
+        {error && (
+          <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        <Button className="w-full" loading={isSubmitting}>
+          Resend verification email
+        </Button>
+      </form>
+
+      <Link
+        to="/login"
+        className="mt-5 block text-center text-sm font-semibold text-brand-600"
+      >
+        Back to sign in
+      </Link>
     </AuthLayout>
   );
 }

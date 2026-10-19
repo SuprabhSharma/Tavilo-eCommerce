@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import Optional
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ReviewModel(BaseModel):
@@ -10,8 +9,8 @@ class ReviewModel(BaseModel):
     rating: int = Field(ge=1, le=5)
     review_text: str
     user_id: uuid.UUID
-    book_id: Optional[uuid.UUID] = None
-    created_at: datetime
+    book_id: uuid.UUID | None = None
+    created_at: datetime | None = None
 
 
 class ReviewCreateModel(BaseModel):
@@ -20,13 +19,12 @@ class ReviewCreateModel(BaseModel):
 
 
 class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     rating: int
     review_text: str
-    user_id: Optional[uuid.UUID] = None
-    product_id: Optional[uuid.UUID] = None
-    book_id: Optional[uuid.UUID] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+    user_id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
+    book_id: uuid.UUID | None = None
+    created_at: datetime | None = None

@@ -1,30 +1,29 @@
 import uuid
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 
 class CategoryCreate(BaseModel):
     name: str
     slug: str
-    parent_id: Optional[uuid.UUID] = None
-    image_url: Optional[str] = None
+    parent_id: uuid.UUID | None = None
+    image_url: str | None = None
 
 
 class CategoryUpdate(BaseModel):
-    name: Optional[str] = None
-    slug: Optional[str] = None
-    parent_id: Optional[uuid.UUID] = None
-    image_url: Optional[str] = None
+    name: str | None = None
+    slug: str | None = None
+    parent_id: uuid.UUID | None = None
+    image_url: str | None = None
 
 
 class CategoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     slug: str
-    parent_id: Optional[uuid.UUID] = None
-    image_url: Optional[str] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+    parent_id: uuid.UUID | None = None
+    image_url: str | None = None
+    created_at: datetime | None = None

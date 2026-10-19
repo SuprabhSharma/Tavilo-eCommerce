@@ -1,65 +1,61 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ServiceCreate(BaseModel):
     title: str
     slug: str
-    description: Optional[str] = None
+    description: str | None = None
     price: Decimal = Field(..., ge=0)
     duration_minutes: int = Field(default=60, ge=1)
-    image_urls: List[str] = []
+    image_urls: list[str] = []
 
 
 class ServiceUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    price: Optional[Decimal] = Field(default=None, ge=0)
-    duration_minutes: Optional[int] = Field(default=None, ge=1)
-    status: Optional[str] = None
-    image_urls: Optional[List[str]] = None
+    title: str | None = None
+    description: str | None = None
+    price: Decimal | None = Field(default=None, ge=0)
+    duration_minutes: int | None = Field(default=None, ge=1)
+    status: str | None = None
+    image_urls: list[str] | None = None
 
 
 class ServiceImageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     url: str
     position: int
 
-    class Config:
-        from_attributes = True
-
 
 class ServiceVendorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     store_name: str
     slug: str
 
-    class Config:
-        from_attributes = True
-
 
 class ServiceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     title: str
     slug: str
-    description: Optional[str] = None
+    description: str | None = None
     price: Decimal
     duration_minutes: int
     status: str
-    vendor: Optional[ServiceVendorOut] = None
-    images: List[ServiceImageOut] = []
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+    vendor: ServiceVendorOut | None = None
+    images: list[ServiceImageOut] = []
+    created_at: datetime | None = None
 
 
 class ServiceListOut(BaseModel):
-    items: List[ServiceOut]
+    items: list[ServiceOut]
     total: int
     page: int
     page_size: int

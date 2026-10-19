@@ -25,7 +25,9 @@ const Cart = lazy(() => import("./pages/Cart"));
 const Checkout = lazy(() => import("./pages/Checkout"));
 const Wishlist = lazy(() => import("./pages/Wishlist"));
 const Account = lazy(() => import("./pages/Account"));
-const OrdersModule = lazy(() => import("./pages/Orders"));
+const OrdersModule = lazy(() =>
+  import("./pages/Orders").then((m) => ({ default: m.default || m.Orders })),
+);
 const OrderDetail = lazy(() =>
   import("./pages/Orders").then((m) => ({ default: m.OrderDetail })),
 );
@@ -37,6 +39,9 @@ const Signup = lazy(() =>
 );
 const VerifyEmail = lazy(() =>
   import("./pages/Auth").then((m) => ({ default: m.VerifyEmail })),
+);
+const CheckEmail = lazy(() =>
+  import("./pages/Auth").then((m) => ({ default: m.CheckEmail })),
 );
 const ForgotPassword = lazy(() =>
   import("./pages/Auth").then((m) => ({ default: m.ForgotPassword })),
@@ -172,6 +177,8 @@ export default function App() {
           </Route>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/check-email" element={<CheckEmail />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/verify-email/:token" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />

@@ -10,6 +10,7 @@ import {
 import {
   Heart,
   Home,
+  LogOut,
   Menu,
   Search,
   ShoppingBag,
@@ -35,12 +36,13 @@ export default function ShopLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
   const logout = useAuthStore((state) => state.logout);
-  const loggedIn = Boolean(useAuthStore((state) => state.accessToken));
+  const isAuthenticated = Boolean(accessToken && user);
   const cart = useQuery({
     queryKey: ["cart"],
     queryFn: getCart,
-    enabled: loggedIn,
+    enabled: isAuthenticated,
   });
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -60,7 +62,7 @@ export default function ShopLayout() {
     logout();
     navigate("/");
   };
-  const count = loggedIn
+  const count = isAuthenticated
     ? cart.data?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0
     : 0;
   return (
@@ -95,22 +97,31 @@ export default function ShopLayout() {
               className="h-11 w-full bg-transparent px-2 text-sm outline-none placeholder:text-muted"
             />
           </form>
-          <nav className="hidden items-center gap-1 md:flex">
-            <NavLink
-              to="/account"
-              className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100"
-            >
-              {user
-                ? `Hi, ${user.first_name || user.email?.split("@")[0]}`
-                : "Sign in"}
-            </NavLink>
-            {user && (
-              <button
-                onClick={signOut}
-                className="rounded-lg px-3 py-2 text-sm text-muted hover:bg-slate-100"
+          <nav className="hidden items-center gap-2 md:flex">
+            {isAuthenticated ? (
+              <>
+                <NavLink
+                  to="/account"
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100"
+                >
+                  <UserRound size={17} className="text-brand-600" />
+                  <span>Hi, {user.first_name || user.email?.split("@")[0]}</span>
+                </NavLink>
+                <button
+                  onClick={signOut}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={16} />
+                  <span>Log out</span>
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/login"
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
               >
-                Log out
-              </button>
+                Sign in
+              </Link>
             )}
             <Link
               to="/cart"
@@ -146,31 +157,117 @@ export default function ShopLayout() {
             className="absolute inset-0 bg-slate-900/40"
             onClick={() => setMenuOpen(false)}
           />
-          <aside className="relative h-full w-80 max-w-[85vw] bg-white p-5 shadow-float">
-            <div className="flex items-center justify-between">
-              <Link to="/" className="flex w-32 items-center">
-                <img
-                  src={brand.logo}
-                  alt={brand.logoAlt}
-                  className="h-auto w-full object-contain"
-                  decoding="async"
-                />
-              </Link>
-              <button aria-label="Close" onClick={() => setMenuOpen(false)}>
-                <X />
-              </button>
-            </div>
-            <div className="mt-8 space-y-2">
-              {nav.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-slate-100"
+          <aside className="relative flex h-full w-80 max-w-[85vw] flex-col justify-between overflow-y-auto bg-white p-5 shadow-float">
+            <div>
+              <div className="flex items-center justify-between">
+                <Link
+                  to="/"
+                  className="flex w-32 items-center"
+                  onClick={() => setMenuOpen(false)}
                 >
-                  <Icon size={18} />
-                  {label}
-                </NavLink>
-              ))}
+                  <img
+                    src={brand.logo}
+                    alt={brand.logoAlt}
+                    className="h-auto w-full object-contain"
+                    decoding="async"
+                  />
+                </Link>
+                <button
+                  aria-label="Close"
+                  onClick={() => setMenuOpen(false)}
+                  className="grid h-10 w-10 place-items-center rounded-lg text-ink hover:bg-slate-100"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Profile or Welcome banner (Flipkart style) */}
+              <div className="mt-6 rounded-xl border border-line bg-slate-50 p-4">
+                {isAuthenticated ? (
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand-600 text-sm font-bold text-white shadow-sm">
+                      {(user.first_name?.[0] || user.email?.[0] || "U").toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-ink">
+                        {user.first_name
+                          ? `${user.first_name} ${user.last_name || ""}`.trim()
+                          : user.email?.split("@")[0]}
+                      </p>
+                      <p className="truncate text-xs text-muted">{user.email}</p>
+                      <span className="mt-1 inline-block rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-brand-700">
+                        {user.role || "Customer"}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-200 text-muted">
+                        <UserRound size={20} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-ink">Welcome to Tavilo</p>
+                        <p className="text-xs text-muted">Sign in for the best experience</p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/login"
+                      onClick={() => setMenuOpen(false)}
+                      className="mt-3 flex w-full items-center justify-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+                    >
+                      Sign in / Register
+                    </Link>
+                  </div>
+                )}
+              </div>
+
+              {/* Navigation links - clean, uniform list */}
+              <div className="mt-6 space-y-1">
+                {nav.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    onClick={() => setMenuOpen(false)}
+                    className={({ isActive }) =>
+                      `flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-brand-50 font-semibold text-brand-600"
+                          : "text-ink hover:bg-slate-100"
+                      }`
+                    }
+                  >
+                    <Icon size={18} />
+                    <span>{to === "/account" && !isAuthenticated ? "Account" : label}</span>
+                    {to === "/cart" && count > 0 && (
+                      <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
+                        {count}
+                      </span>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+
+            {/* Bottom action: ONLY when logged in, show ONE Log out button. No duplicate login buttons when logged out */}
+            <div className="mt-6 border-t border-line pt-4">
+              {isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    signOut();
+                  }}
+                  className="flex w-full min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={18} />
+                  <span>Log out</span>
+                </button>
+              ) : (
+                <p className="text-center text-xs text-muted">
+                  Tavilo Marketplace &bull; 100% Secure
+                </p>
+              )}
             </div>
           </aside>
         </div>

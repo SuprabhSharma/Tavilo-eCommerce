@@ -54,6 +54,12 @@ export const updateVendorService = (uid, payload) =>
   api.patch(`/services/vendor/me/${uid}`, payload).then((r) => r.data);
 export const deleteVendorService = (uid) =>
   api.delete(`/services/vendor/me/${uid}`).then((r) => r.data);
+export const getVendorOrders = () =>
+  api.get("/orders/vendor").then((r) => r.data);
+export const updateVendorSubOrderStatus = (subUid, status) =>
+  api
+    .patch(`/orders/vendor/sub-orders/${subUid}/status`, { status })
+    .then((r) => r.data);
 export const getAdminStats = () => api.get("/admin/stats").then((r) => r.data);
 export const getPendingVendors = () =>
   api.get("/vendors/admin/pending").then((r) => r.data);

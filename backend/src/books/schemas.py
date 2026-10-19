@@ -1,7 +1,5 @@
 import uuid
 from datetime import date, datetime
-from typing import Optional
-
 from pydantic import BaseModel, ConfigDict
 from src.reviews.schemas import ReviewModel
 
@@ -16,9 +14,9 @@ class Book(BaseModel):
     published_date: date
     page_count: int
     language: str
-    user_id: Optional[uuid.UUID] = None
-    created_at: datetime
-    updated_at: datetime
+    user_id: uuid.UUID | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 class BookDetailModel(Book):
     reviews : list[ReviewModel]

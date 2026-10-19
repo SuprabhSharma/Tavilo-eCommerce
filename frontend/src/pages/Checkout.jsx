@@ -37,6 +37,10 @@ export default function Checkout() {
     mutationFn: checkout,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cart"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
       navigate(`/orders/${data.uid}/success`, { state: { order: data } });
     },
     onError: (e) => setError(getErrorMessage(e)),

@@ -5,7 +5,9 @@ export const signup = (payload) =>
   api.post("/auth/signup", payload).then((r) => r.data);
 export const getMe = () => api.get("/auth/me").then((r) => r.data);
 export const verifyEmail = (token) =>
-  api.get(`/auth/verify/${token}`).then((r) => r.data);
+  api.post("/auth/verify", { token }).then((r) => r.data);
+export const resendVerification = (email) =>
+  api.post("/auth/resend-verification", { email }).then((r) => r.data);
 export const requestPasswordReset = (email) =>
   api.post("/auth/password-reset-request", { email }).then((r) => r.data);
 export const resetPassword = (token, payload) =>

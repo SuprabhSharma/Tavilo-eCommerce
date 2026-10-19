@@ -33,12 +33,12 @@ async def get_approved_vendor(current_user: User = Depends(get_verified_user), s
 async def list_products(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    category: Optional[str] = Query(None),
-    vendor: Optional[str] = Query(None),
-    q: Optional[str] = Query(None, min_length=1, max_length=100),
-    min_price: Optional[Decimal] = Query(None),
-    max_price: Optional[Decimal] = Query(None),
-    in_stock: Optional[bool] = Query(None),
+    category: str | None = Query(None),
+    vendor: str | None = Query(None),
+    q: str | None = Query(None, min_length=1, max_length=100),
+    min_price: Decimal | None = Query(None),
+    max_price: Decimal | None = Query(None),
+    in_stock: bool | None = Query(None),
     sort: str = Query("newest", pattern="^(newest|price_asc|price_desc|rating)$"),
     session: AsyncSession = Depends(get_session),
 ):

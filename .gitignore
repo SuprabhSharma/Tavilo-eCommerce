@@ -7,4 +7,6 @@ __pycache__
 .uv-cache/
 node_modules/
 dist/
-.DS_Store
+.DS_Store
+
+backend/tests/

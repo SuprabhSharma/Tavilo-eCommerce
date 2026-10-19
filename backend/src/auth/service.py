@@ -27,6 +27,10 @@ class UserService:
         
         
         return user is not None
+
+    async def username_exists(self, username: str, session: AsyncSession) -> bool:
+        result = await session.exec(select(User).where(User.username == username))
+        return result.first() is not None
     
     
     async def create_user(self, user_data: UserCreateModel, session: AsyncSession):

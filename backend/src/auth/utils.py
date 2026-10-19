@@ -1,4 +1,6 @@
 import logging
+import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +20,17 @@ ACCESS_TOKEN_EXPIRY = 3600
 def normalize_email(email: str) -> str:
     """Return the canonical form used for email lookups and storage."""
     return email.strip().lower()
+
+
+def create_email_verification_token() -> tuple[str, str]:
+    """Return a raw URL token and its SHA-256 digest for database storage."""
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    return raw_token, token_hash
+
+
+def hash_email_verification_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def generate_passwd_hash(password: str) -> str:

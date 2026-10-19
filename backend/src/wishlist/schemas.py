@@ -1,8 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from src.products.schemas import ProductSummaryOut
 
@@ -12,17 +11,16 @@ class WishlistItemAdd(BaseModel):
 
 
 class WishlistItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     product_id: uuid.UUID
     product_title: str
     product_slug: str
-    created_at: datetime
+    created_at: datetime | None = None
     product: ProductSummaryOut
-
-    class Config:
-        from_attributes = True
 
 
 class WishlistOut(BaseModel):
-    items: List[WishlistItemOut]
+    items: list[WishlistItemOut]
     total: int

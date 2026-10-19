@@ -1,20 +1,31 @@
 from datetime import timedelta, timezone, datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.config import Config
 from src.audit import record_audit
 from src.db.main import get_session
+from src.db.models import PendingRegistration, User
 from src.errors import (
     AccountNotVerified,
+    EmailDeliveryUnavailable,
     InvalidCredentials,
     InvalidToken,
+    InvalidVerificationToken,
     UserAlreadyExists,
     UserNotFound,
 )
-from src.mail import create_message, mail
+from src.mail import (
+    EmailDeliveryError,
+    create_message,
+    deliver_message,
+    deliver_message_in_background,
+)
 
 from .dependencies import (
     AccessTokenBearer,
@@ -24,6 +35,7 @@ from .dependencies import (
 )
 from .schemas import (
     EmailModel,
+    EmailVerificationTokenModel,
     PasswordResetConfirmModel,
     PasswordResetRequestModel,
     UserBooksModel,
@@ -33,20 +45,25 @@ from .schemas import (
 from .service import TokenBlocklistService, UserService
 from .utils import (
     create_access_tokens,
+    create_email_verification_token,
     create_url_safe_token,
     decode_url_safe_token,
     generate_passwd_hash,
+    hash_email_verification_token,
     normalize_email,
     verify_password,
     decode_token,
 )
 
 REFRESH_TOKEN_EXPIRY = 2
+EMAIL_VERIFICATION_TTL = timedelta(hours=24)
+EMAIL_RESEND_COOLDOWN = timedelta(seconds=60)
 
 auth_router = APIRouter()
 user_service = UserService()
 token_blocklist_service = TokenBlocklistService()
 role_checker = RoleChecker(["admin", "customer", "vendor"])
+admin_only_dependency = Depends(RoleChecker(["admin"]))
 session_dependency = Depends(get_session)
 refresh_token_dependency = Depends(RefreshTokenBearer())
 access_token_dependency = Depends(AccessTokenBearer())
@@ -66,7 +83,25 @@ def set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
-@auth_router.post("/send_email")
+def build_verification_message(email: str, raw_token: str):
+    frontend_url = Config.FRONTEND_URL.rstrip("/")
+    # Fragments stay out of web-server, proxy, and API logs. Verification is
+    # confirmed explicitly in the browser so email security scanners cannot
+    # consume the one-time token simply by opening the link.
+    link = f"{frontend_url}/verify-email#token={quote(raw_token, safe='')}"
+    html_message = f"""
+    <h1>Verify your email</h1>
+    <p>Please click <a href="{link}">here</a> to verify your email address.</p>
+    <p>This link expires in 24 hours and can only be used once.</p>
+    """
+    return create_message(
+        recipients=[email],
+        subject="Verify your Tavilo email",
+        body=html_message,
+    )
+
+
+@auth_router.post("/send_email", dependencies=[admin_only_dependency])
 async def send_email(emails: EmailModel):
     emails = emails.addresses
 
@@ -78,12 +113,15 @@ async def send_email(emails: EmailModel):
         body=html,
     )
 
-    await mail.send_message(message)
+    try:
+        await deliver_message(message, event="manual_email")
+    except EmailDeliveryError as exc:
+        raise EmailDeliveryUnavailable() from exc
 
     return {"message": "Email sent Successfully"}
 
 
-@auth_router.post("/signup", status_code=status.HTTP_201_CREATED)
+@auth_router.post("/signup", status_code=status.HTTP_202_ACCEPTED)
 async def create_user_account(
     user_data: UserCreateModel,
     bg_tasks: BackgroundTasks,
@@ -94,73 +132,208 @@ async def create_user_account(
     email = normalize_email(user_data.email)
     user_data = user_data.model_copy(update={"email": email})
 
-    user_exists = await user_service.user_exists(email, session)
-
-    if user_exists:
+    existing_user = await user_service.get_user_by_email(email, session)
+    if existing_user and existing_user.is_verified:
         raise UserAlreadyExists()
 
-    new_user = await user_service.create_user(user_data, session)
+    if not existing_user and await user_service.username_exists(user_data.username, session):
+        raise UserAlreadyExists()
 
-    token = create_url_safe_token({"email": email, "purpose": "email-verification"})
+    now = datetime.now(timezone.utc)
+    pending_result = await session.exec(
+        select(PendingRegistration).where(PendingRegistration.email == email)
+    )
+    pending = pending_result.first()
+    if pending:
+        if pending.token_expires_at > now:
+            return {
+                "message": "Check your email to finish creating your Tavilo account.",
+            }
+        await session.delete(pending)
+        await session.flush()
 
-    # Link points to FRONTEND, not API
-    link = f"{Config.FRONTEND_URL}/verify-email/{token}"
+    raw_token, token_hash = create_email_verification_token()
+    if existing_user:
+        pending_values = {
+            "email": existing_user.email,
+            "username": existing_user.username,
+            "first_name": existing_user.first_name,
+            "last_name": existing_user.last_name,
+            "password_hash": existing_user.password_hash,
+        }
+    else:
+        pending_values = {
+            "email": email,
+            "username": user_data.username,
+            "first_name": user_data.first_name,
+            "last_name": user_data.last_name,
+            "password_hash": generate_passwd_hash(user_data.password),
+        }
+    pending = PendingRegistration(
+        **pending_values,
+        verification_token_hash=token_hash,
+        token_expires_at=now + EMAIL_VERIFICATION_TTL,
+        last_sent_at=now,
+        created_at=now,
+    )
+    session.add(pending)
 
-    html_message = f"""
-    <h1>Verify your Email</h1>
-    <p>Please click <a href="{link}">here</a> to verify your email address.</p>
-    """
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise UserAlreadyExists() from exc
 
-    message = create_message(
-        recipients=[email],
-        subject="Verify your email",
-        body=html_message,
+    bg_tasks.add_task(
+        deliver_message_in_background,
+        build_verification_message(email, raw_token),
+        event="email_verification",
     )
 
-    bg_tasks.add_task(mail.send_message, message)
-
     return {
-        "message": "Account created! Check your email to verify your account.",
-        "user": new_user,
+        "message": "Check your email to finish creating your Tavilo account.",
     }
 
 
-@auth_router.get("/verify/{token}")
-async def verify_user_account(token: str, session: AsyncSession = session_dependency):
-    token_data = decode_url_safe_token(token, max_age=24 * 60 * 60)
+@auth_router.post("/verify")
+async def verify_user_account(
+    verification: EmailVerificationTokenModel,
+    session: AsyncSession = session_dependency,
+):
+    """Consume a verification token after an explicit user confirmation."""
+    token = verification.token.strip()
+    now = datetime.now(timezone.utc)
+    token_hash = hash_email_verification_token(token)
+    result = await session.exec(
+        select(PendingRegistration).where(
+            PendingRegistration.verification_token_hash == token_hash
+        )
+    )
+    pending = result.first()
 
-    if not token_data:
-        raise InvalidToken()
+    if not pending or pending.token_expires_at <= now:
+        if pending:
+            await session.delete(pending)
+            await session.commit()
+        # Old frontend links placed an earlier signed token in the URL path.
+        # They now arrive here only after the same explicit confirmation step.
+        legacy_data = decode_url_safe_token(token, max_age=24 * 60 * 60)
+        if legacy_data and legacy_data.get("purpose") == "email-verification":
+            legacy_email = legacy_data.get("email")
+            if legacy_email:
+                legacy_user = await user_service.get_user_by_email(
+                    normalize_email(legacy_email), session
+                )
+                if legacy_user:
+                    if not legacy_user.is_verified:
+                        await user_service.update_user(
+                            legacy_user, {"is_verified": True}, session
+                        )
+                    return JSONResponse(
+                        content={"message": "Email verified successfully"},
+                        status_code=status.HTTP_200_OK,
+                    )
+        raise InvalidVerificationToken()
 
-    if token_data.get("purpose") != "email-verification":
-        raise InvalidToken()
-
-    user_email = token_data.get("email")
-
-    if user_email:
-        user = await user_service.get_user_by_email(user_email, session)
-
-        if not user:
-            raise UserNotFound()
-
-        await user_service.update_user(user, {"is_verified": True}, session)
-
+    existing_user = await user_service.get_user_by_email(pending.email, session)
+    if existing_user:
+        if not existing_user.is_verified:
+            existing_user.is_verified = True
+            existing_user.updated_at = now
+        await session.delete(pending)
+        await session.commit()
         return JSONResponse(
-            content={"message": "Account verified successfully"},
+            content={"message": "Email verified successfully"},
             status_code=status.HTTP_200_OK,
         )
 
-    return JSONResponse(
-        content={"message": "Error occurred during verification"},
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    user = User(
+        username=pending.username,
+        email=pending.email,
+        first_name=pending.first_name,
+        last_name=pending.last_name,
+        password_hash=pending.password_hash,
+        role="customer",
+        is_verified=True,
+        created_at=now,
+        updated_at=now,
     )
+    session.add(user)
+    await session.delete(pending)
+
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise UserAlreadyExists() from exc
+
+    return JSONResponse(
+        content={"message": "Account verified and created successfully"},
+        status_code=status.HTTP_200_OK,
+    )
+
+
+@auth_router.post("/resend-verification")
+async def resend_verification(
+    email_data: PasswordResetRequestModel,
+    bg_tasks: BackgroundTasks,
+    session: AsyncSession = session_dependency,
+):
+    """Resend a pending verification email without revealing account state."""
+    generic_response = JSONResponse(
+        content={
+            "message": "If a pending signup exists for that email, a verification link will be sent.",
+        },
+        status_code=status.HTTP_200_OK,
+    )
+    email = normalize_email(email_data.email)
+    result = await session.exec(
+        select(PendingRegistration).where(PendingRegistration.email == email)
+    )
+    pending = result.first()
+    legacy_user = None
+    if not pending:
+        legacy_user = await user_service.get_user_by_email(email, session)
+        if not legacy_user or legacy_user.is_verified:
+            return generic_response
+
+    now = datetime.now(timezone.utc)
+    if pending and pending.last_sent_at + EMAIL_RESEND_COOLDOWN > now:
+        return generic_response
+
+    raw_token, token_hash = create_email_verification_token()
+    if pending:
+        pending.verification_token_hash = token_hash
+        pending.token_expires_at = now + EMAIL_VERIFICATION_TTL
+        pending.last_sent_at = now
+    else:
+        pending = PendingRegistration(
+            email=legacy_user.email,
+            username=legacy_user.username,
+            first_name=legacy_user.first_name,
+            last_name=legacy_user.last_name,
+            password_hash=legacy_user.password_hash,
+            verification_token_hash=token_hash,
+            token_expires_at=now + EMAIL_VERIFICATION_TTL,
+            last_sent_at=now,
+            created_at=now,
+        )
+    session.add(pending)
+    await session.commit()
+
+    bg_tasks.add_task(
+        deliver_message_in_background,
+        build_verification_message(email, raw_token),
+        event="email_verification_resend",
+    )
+    return generic_response
 
 
 @auth_router.post("/login")
 async def login_users(
     login_data: UserLoginModel, session: AsyncSession = session_dependency
 ):
-    email = login_data.email
+    email = normalize_email(login_data.email)
     password = login_data.password
 
     user = await user_service.get_user_by_email(email, session)
@@ -305,7 +478,7 @@ async def revoke_token(
 
 @auth_router.post("/password-reset-request")
 async def password_reset_request(email_data: PasswordResetRequestModel):
-    email = email_data.email
+    email = normalize_email(email_data.email)
 
     # Always return the same response — do not reveal whether the email exists
     SUCCESS_RESPONSE = JSONResponse(
@@ -333,7 +506,7 @@ async def password_reset_request(email_data: PasswordResetRequestModel):
     )
 
     try:
-        await mail.send_message(message)
+        await deliver_message(message, event="password_reset")
     except Exception:
         pass  # Swallow silently — never reveal email existence
 

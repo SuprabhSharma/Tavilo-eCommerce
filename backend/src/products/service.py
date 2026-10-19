@@ -39,7 +39,7 @@ class ProductService:
     ) -> ProductListOut:
         from src.db.models import Category
 
-        stmt = select(Product).where(Product.status == "active")
+        stmt = select(Product).join(Vendor, Product.vendor_id == Vendor.uid).where(Product.status == "active", Vendor.status == "approved")
 
         if category_slug:
             cat_q = await session.exec(select(Category).where(Category.slug == category_slug))
@@ -48,10 +48,13 @@ class ProductService:
                 stmt = stmt.where(Product.category_id == cat.uid)
 
         if vendor_slug:
-            v_q = await session.exec(select(Vendor).where(Vendor.slug == vendor_slug))
+            v_q = await session.exec(select(Vendor).where(Vendor.slug == vendor_slug, Vendor.status == "approved"))
             vendor = v_q.first()
             if vendor:
                 stmt = stmt.where(Product.vendor_id == vendor.uid)
+            else:
+                # Specified vendor doesn't exist or is not approved; return empty list
+                return ProductListOut(items=[], total=0, page=page, page_size=page_size, pages=0)
 
         if query:
             stmt = stmt.where(Product.title.ilike(f"%{query.strip()}%"))
@@ -89,7 +92,11 @@ class ProductService:
         )
 
     async def get_by_slug(self, slug: str, session: AsyncSession) -> Optional[Product]:
-        result = await session.exec(select(Product).where(Product.slug == slug, Product.status == "active"))
+        result = await session.exec(
+            select(Product)
+            .join(Vendor, Product.vendor_id == Vendor.uid)
+            .where(Product.slug == slug, Product.status == "active", Vendor.status == "approved")
+        )
         return result.first()
 
     async def get_by_id(self, uid: uuid.UUID, session: AsyncSession) -> Optional[Product]:

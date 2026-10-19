@@ -87,6 +87,42 @@ class User(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
+# Pending registration
+# ---------------------------------------------------------------------------
+
+class PendingRegistration(SQLModel, table=True):
+    """Signup data that becomes a User only after email verification."""
+
+    __tablename__ = "pending_registrations"
+
+    uid: uuid.UUID = Field(
+        sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
+    )
+    email: str = Field(sa_column=Column(pg.VARCHAR(320), nullable=False, unique=True))
+    username: str = Field(sa_column=Column(pg.VARCHAR(30), nullable=False, unique=True))
+    first_name: str = Field(sa_column=Column(pg.VARCHAR(120), nullable=False))
+    last_name: str = Field(sa_column=Column(pg.VARCHAR(120), nullable=False))
+    password_hash: str = Field(
+        sa_column=Column(pg.VARCHAR(255), nullable=False)
+    )
+    verification_token_hash: str = Field(
+        sa_column=Column(pg.VARCHAR(64), nullable=False, unique=True, index=True)
+    )
+    token_expires_at: datetime = Field(
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True)
+    )
+    last_sent_at: datetime = Field(
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False)
+    )
+    created_at: datetime = Field(
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False)
+    )
+
+    def __repr__(self):
+        return f"<PendingRegistration {self.email}>"
+
+
+# ---------------------------------------------------------------------------
 # Token blocklist
 # ---------------------------------------------------------------------------
 
@@ -496,6 +532,7 @@ class Order(SQLModel, table=True):
     __tablename__ = "orders"
 
     uid: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
     user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False)
@@ -518,11 +555,19 @@ class Order(SQLModel, table=True):
     status: str = Field(
         sa_column=Column(pg.VARCHAR(20), nullable=False, server_default="placed")
     )
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        sa_column=Column(pg.VARCHAR(255), nullable=True, index=True),
+    )
     created_at: datetime = Field(
         sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now, index=True)
     )
     updated_at: datetime = Field(
         sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_orders_user_idempotency_key"),
     )
 
     user: Optional[User] = Relationship(
@@ -544,6 +589,7 @@ class SubOrder(SQLModel, table=True):
     __tablename__ = "sub_orders"
 
     uid: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
     order_id: uuid.UUID = Field(foreign_key="orders.uid", nullable=False)
@@ -575,6 +621,10 @@ class SubOrder(SQLModel, table=True):
         sa_relationship_kwargs={"lazy": "selectin"},
     )
 
+    @property
+    def store_name(self) -> Optional[str]:
+        return self.vendor.store_name if self.vendor else None
+
     def __repr__(self):
         return f"<SubOrder {self.uid} vendor={self.vendor_id}>"
 
@@ -583,6 +633,7 @@ class OrderItem(SQLModel, table=True):
     __tablename__ = "order_items"
 
     uid: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
     sub_order_id: uuid.UUID = Field(foreign_key="sub_orders.uid", nullable=False)
@@ -602,6 +653,24 @@ class OrderItem(SQLModel, table=True):
         back_populates="order_items",
         sa_relationship_kwargs={"lazy": "selectin"},
     )
+
+    @property
+    def line_total(self) -> Decimal:
+        if self.price_snapshot is not None and self.quantity is not None:
+            return Decimal(str(self.price_snapshot)) * self.quantity
+        return Decimal("0.00")
+
+    @property
+    def image_url(self) -> str | None:
+        if self.product and self.product.images:
+            return self.product.images[0].url
+        return None
+
+    @property
+    def product_slug(self) -> str | None:
+        if self.product:
+            return self.product.slug
+        return None
 
     def __repr__(self):
         return f"<OrderItem product={self.product_id} qty={self.quantity}>"

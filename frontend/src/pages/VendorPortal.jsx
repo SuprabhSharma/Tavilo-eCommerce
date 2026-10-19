@@ -3,22 +3,31 @@ import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   BarChart3,
   Check,
+  CheckCircle2,
   ChevronRight,
   CircleAlert,
+  Clock,
+  Copy,
   Edit3,
   ExternalLink,
+  GripVertical,
   LayoutDashboard,
+  MapPin,
   Package,
+  Phone,
   Plus,
+  Search,
+  ShoppingBag,
   Store,
   Trash2,
+  Truck,
   Upload,
+  WalletCards,
   X,
   ZoomIn,
-  GripVertical,
-  WalletCards,
 } from "lucide-react";
 import { listCategories } from "../api/catalog";
 import {
@@ -29,10 +38,12 @@ import {
   deleteVendorService,
   getAllVendorProducts,
   getAllVendorServices,
+  getVendorOrders,
   getVendorProfile,
   updateVendorProduct,
   updateVendorService,
   updateVendorProfile,
+  updateVendorSubOrderStatus,
   uploadVendorProductImages,
 } from "../api/vendor";
 import { BackLink, PageHeader } from "../components/Page";
@@ -47,12 +58,13 @@ import {
   Skeleton,
 } from "../components/ui";
 import { getErrorMessage } from "../lib/errors";
-import { formatCurrency, formatDate } from "../lib/formatters";
+import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
 
 const LOW_STOCK_THRESHOLD = 5;
 
 const navItems = [
   { to: "/vendor", label: "Overview", icon: LayoutDashboard },
+  { to: "/vendor/orders", label: "Orders", icon: ShoppingBag },
   { to: "/vendor/products", label: "Products", icon: Package },
   { to: "/vendor/services", label: "Services", icon: Store },
   { to: "/vendor/settings", label: "Store settings", icon: Store },
@@ -109,6 +121,10 @@ export default function VendorPortal() {
             <Route
               path="apply"
               element={<VendorApplication profile={profile} />}
+            />
+            <Route
+              path="orders"
+              element={<VendorOrders profile={profile} />}
             />
             <Route
               path="products"
@@ -360,6 +376,12 @@ function ApprovedOverview({ vendor }) {
     queryKey: ["vendor-products"],
     queryFn: getAllVendorProducts,
   });
+  const ordersQuery = useQuery({
+    queryKey: ["vendor-orders"],
+    queryFn: getVendorOrders,
+  });
+  const orderList = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
+  const pendingOrders = orderList.filter((o) => o.status === "placed");
   const items = products.data?.items || [];
   const active = items.filter((item) => item.status === "active");
   const lowStock = items.filter((item) => item.stock <= LOW_STOCK_THRESHOLD);
@@ -372,21 +394,40 @@ function ApprovedOverview({ vendor }) {
       <PageHeader
         eyebrow="Overview"
         title={`Welcome, ${vendor.store_name}`}
-        description="Keep your catalogue fresh and your inventory healthy."
+        description="Keep your catalogue fresh, process new orders, and monitor your inventory."
         action={
-          <Link
-            to="/vendor/products"
-            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700"
-          >
-            <Plus size={17} /> Add product
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/vendor/orders"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-semibold text-ink hover:bg-slate-50"
+            >
+              <ShoppingBag size={17} /> View Orders ({orderList.length})
+            </Link>
+            <Link
+              to="/vendor/products"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700"
+            >
+              <Plus size={17} /> Add product
+            </Link>
+          </div>
         }
       />
       {products.isError ? (
         <ErrorState onRetry={products.refetch} />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <Metric
+              icon={ShoppingBag}
+              label="Total orders"
+              value={orderList.length}
+            />
+            <Metric
+              icon={CircleAlert}
+              label="Action required"
+              value={pendingOrders.length}
+              tone={pendingOrders.length ? "warning" : "default"}
+            />
             <Metric
               icon={Package}
               label="Total products"
@@ -402,24 +443,90 @@ function ApprovedOverview({ vendor }) {
               label="Inventory value"
               value={formatCurrency(inventoryValue)}
             />
-            <Metric
-              icon={CircleAlert}
-              label="Low-stock products"
-              value={lowStock.length}
-              tone={lowStock.length ? "warning" : "default"}
-            />
           </div>
           <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_.7fr]">
-            <section className="rounded-card border border-line bg-white p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="font-bold">Recent products</h2>
-                <Link
-                  to="/vendor/products"
-                  className="text-sm font-semibold text-brand-600"
-                >
-                  Manage all
-                </Link>
-              </div>
+            <div className="space-y-6">
+              {/* Recent Orders Section */}
+              <section className="rounded-card border border-line bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-bold text-ink">Recent orders</h2>
+                    <p className="text-xs text-muted">Orders placed for your store</p>
+                  </div>
+                  <Link
+                    to="/vendor/orders"
+                    className="text-sm font-semibold text-brand-600"
+                  >
+                    Manage all ({orderList.length})
+                  </Link>
+                </div>
+                {ordersQuery.isLoading ? (
+                  <div className="mt-4 space-y-3">
+                    <Skeleton className="h-12" />
+                    <Skeleton className="h-12" />
+                  </div>
+                ) : orderList.length ? (
+                  <div className="mt-4 divide-y divide-line">
+                    {orderList.slice(0, 4).map((subOrder) => (
+                      <div
+                        key={subOrder.uid}
+                        className="flex items-center justify-between gap-3 py-3 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-semibold text-ink">
+                              #{subOrder.uid.slice(0, 8).toUpperCase()}
+                            </span>
+                            <Badge
+                              tone={
+                                subOrder.status === "delivered"
+                                  ? "success"
+                                  : subOrder.status === "cancelled"
+                                    ? "danger"
+                                    : subOrder.status === "placed"
+                                      ? "warning"
+                                      : "neutral"
+                              }
+                            >
+                              {subOrder.status}
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-muted">
+                            {subOrder.items?.map((i) => i.title_snapshot).join(", ")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-ink">
+                            {formatCurrency(subOrder.subtotal)}
+                          </p>
+                          <Link
+                            to="/vendor/orders"
+                            className="text-xs font-medium text-brand-600 hover:underline"
+                          >
+                            Process &rarr;
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-lg bg-slate-50 p-4 text-center text-sm text-muted">
+                    No orders placed yet. Products you list will appear here when purchased.
+                  </div>
+                )}
+              </section>
+
+              {/* Recent Products Section */}
+              <section className="rounded-card border border-line bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold">Recent products</h2>
+                  <Link
+                    to="/vendor/products"
+                    className="text-sm font-semibold text-brand-600"
+                  >
+                    Manage all
+                  </Link>
+                </div>
               {products.isLoading ? (
                 <div className="mt-5 space-y-3">
                   <Skeleton className="h-12" />
@@ -473,7 +580,8 @@ function ApprovedOverview({ vendor }) {
                 />
               )}
             </section>
-            <section className="rounded-card border border-line bg-brand-700 p-5 text-white">
+          </div>
+          <section className="rounded-card border border-line bg-brand-700 p-5 text-white">
               <p className="text-xs font-bold uppercase tracking-widest text-blue-100">
                 Store health
               </p>
@@ -1313,4 +1421,534 @@ function toForm(product) {
     category_id: product.category?.uid || "",
     status: product.status || "active",
   };
+}
+
+function VendorOrders({ profile }) {
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
+  const [cancelModalSubUid, setCancelModalSubUid] = useState(null);
+
+  const ordersQuery = useQuery({
+    queryKey: ["vendor-orders"],
+    queryFn: getVendorOrders,
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ subUid, status }) =>
+      updateVendorSubOrderStatus(subUid, status),
+    onSuccess: () => {
+      setCancelModalSubUid(null);
+      queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+    },
+  });
+
+  const copyToClipboard = (text, e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    navigator.clipboard?.writeText(text);
+    setCopiedId(text);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  if (ordersQuery.isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-12 w-full max-w-md" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </div>
+    );
+  }
+
+  if (ordersQuery.isError) {
+    return <ErrorState onRetry={ordersQuery.refetch} />;
+  }
+
+  const rawOrders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
+
+  const filteredOrders = rawOrders.filter((order) => {
+    const matchesStatus =
+      statusFilter === "all"
+        ? true
+        : statusFilter === "action_required"
+          ? order.status === "placed"
+          : order.status === statusFilter;
+
+    if (!matchesStatus) return false;
+
+    if (!searchQuery.trim()) return true;
+
+    const q = searchQuery.toLowerCase().trim();
+    const idMatch =
+      order.uid?.toLowerCase().includes(q) ||
+      order.order_id?.toLowerCase().includes(q);
+    const customerMatch =
+      order.address_snapshot?.name?.toLowerCase().includes(q) ||
+      order.address_snapshot?.phone?.toLowerCase().includes(q) ||
+      order.address_snapshot?.city?.toLowerCase().includes(q);
+    const itemMatch = order.items?.some((i) =>
+      i.title_snapshot?.toLowerCase().includes(q)
+    );
+
+    return idMatch || customerMatch || itemMatch;
+  });
+
+  const actionRequiredCount = rawOrders.filter(
+    (o) => o.status === "placed"
+  ).length;
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Seller Fulfillment"
+        title="Order Management"
+        description="Process store orders, manage fulfillment steps, and keep customer deliveries on track."
+        action={
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              <span className="h-2 w-2 rounded-full bg-brand-600 animate-pulse" />
+              {rawOrders.length} Total Orders
+            </span>
+          </div>
+        }
+      />
+
+      {/* Quick Status Highlights */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-card border border-line bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-muted">New Orders</p>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-2xl font-bold text-ink">
+              {rawOrders.filter((o) => o.status === "placed").length}
+            </span>
+            {actionRequiredCount > 0 && (
+              <Badge tone="warning">Action Needed</Badge>
+            )}
+          </div>
+        </div>
+        <div className="rounded-card border border-line bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-muted">Confirmed (Packing)</p>
+          <p className="mt-1 text-2xl font-bold text-ink">
+            {rawOrders.filter((o) => o.status === "confirmed").length}
+          </p>
+        </div>
+        <div className="rounded-card border border-line bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-muted">In Transit (Shipped)</p>
+          <p className="mt-1 text-2xl font-bold text-ink">
+            {rawOrders.filter((o) => o.status === "shipped").length}
+          </p>
+        </div>
+        <div className="rounded-card border border-line bg-white p-4">
+          <p className="text-xs font-semibold uppercase text-muted">Completed (Delivered)</p>
+          <p className="mt-1 text-2xl font-bold text-emerald-600">
+            {rawOrders.filter((o) => o.status === "delivered").length}
+          </p>
+        </div>
+      </div>
+
+      {/* Filter Tabs & Search */}
+      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1 max-w-md">
+          <Search
+            size={18}
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            type="text"
+            placeholder="Search by Order ID, Customer name, City, or Product..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-11 w-full rounded-lg border border-line bg-white pl-10 pr-4 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm">
+          {[
+            { id: "all", label: `All (${rawOrders.length})` },
+            {
+              id: "action_required",
+              label: `New Orders (${actionRequiredCount})`,
+            },
+            { id: "confirmed", label: "Confirmed" },
+            { id: "shipped", label: "Shipped" },
+            { id: "delivered", label: "Delivered" },
+            { id: "cancelled", label: "Cancelled" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={`rounded-lg px-3 py-1.5 font-medium transition ${
+                statusFilter === tab.id
+                  ? "bg-brand-600 text-white shadow-sm"
+                  : "bg-white text-muted border border-line hover:bg-slate-50 hover:text-ink"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Orders List */}
+      {filteredOrders.length === 0 ? (
+        <div className="mt-8 rounded-card border border-dashed border-line bg-white p-12 text-center">
+          <ShoppingBag size={40} className="mx-auto text-slate-300" />
+          <h3 className="mt-4 font-semibold text-ink">No orders found</h3>
+          <p className="mt-1 text-sm text-muted">
+            {searchQuery
+              ? "No orders match your search criteria. Try a different term or clear filters."
+              : "When customers place orders for products from your store, they will appear here."}
+          </p>
+          {(searchQuery || statusFilter !== "all") && (
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={() => {
+                setSearchQuery("");
+                setStatusFilter("all");
+              }}
+            >
+              Reset Filters
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-6 space-y-5">
+          {filteredOrders.map((subOrder) => {
+            const isPlaced = subOrder.status === "placed";
+            const isConfirmed = subOrder.status === "confirmed";
+            const isShipped = subOrder.status === "shipped";
+            const isDelivered = subOrder.status === "delivered";
+            const isCancelled = subOrder.status === "cancelled";
+
+            const isPendingThis =
+              updateStatusMutation.isPending &&
+              updateStatusMutation.variables?.subUid === subOrder.uid;
+
+            const addr = subOrder.address_snapshot || {};
+
+            return (
+              <div
+                key={subOrder.uid}
+                className="overflow-hidden rounded-card border border-line bg-white shadow-sm transition hover:border-slate-300"
+              >
+                {/* Header Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-slate-50/70 px-5 py-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        SubOrder ID
+                      </span>
+                      <div className="flex items-center gap-1 font-mono font-medium text-ink">
+                        <span>#{subOrder.uid.slice(0, 8).toUpperCase()}</span>
+                        <button
+                          onClick={(e) => copyToClipboard(subOrder.uid, e)}
+                          title="Copy SubOrder UID"
+                          className="text-slate-400 hover:text-brand-600"
+                        >
+                          {copiedId === subOrder.uid ? (
+                            <Check size={12} className="text-emerald-600" />
+                          ) : (
+                            <Copy size={12} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="hidden h-7 w-px bg-slate-200 sm:block" />
+
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Parent Order
+                      </span>
+                      <div className="flex items-center gap-1 font-mono text-xs text-muted">
+                        <span>#{subOrder.order_id?.slice(0, 8).toUpperCase()}</span>
+                        <button
+                          onClick={(e) => copyToClipboard(subOrder.order_id, e)}
+                          title="Copy Parent Order UID"
+                          className="hover:text-brand-600"
+                        >
+                          {copiedId === subOrder.order_id ? (
+                            <Check size={11} className="text-emerald-600" />
+                          ) : (
+                            <Copy size={11} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="hidden h-7 w-px bg-slate-200 sm:block" />
+
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Date Placed
+                      </span>
+                      <p className="font-medium text-ink">
+                        {formatDate(subOrder.created_at)}
+                      </p>
+                    </div>
+
+                    <div className="hidden h-7 w-px bg-slate-200 sm:block" />
+
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Payment
+                      </span>
+                      <p className="font-medium text-ink capitalize">
+                        {subOrder.payment_method === "online_mock"
+                          ? "Online (Paid)"
+                          : "Cash on Delivery"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div>
+                    <Badge
+                      tone={
+                        isDelivered
+                          ? "success"
+                          : isCancelled
+                            ? "danger"
+                            : isShipped || isConfirmed
+                              ? "warning"
+                              : "neutral"
+                      }
+                    >
+                      {subOrder.status.toUpperCase()}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Body Content */}
+                <div className="p-5">
+                  <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+                    {/* Items Section */}
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted">
+                        Ordered Items ({subOrder.items?.length || 0})
+                      </h4>
+                      <div className="mt-3 divide-y divide-line rounded-lg border border-line">
+                        {(subOrder.items || []).map((item) => (
+                          <div
+                            key={item.uid}
+                            className="flex items-center justify-between gap-3 p-3 text-sm"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <img
+                                src={orderItemImage(item)}
+                                alt={item.title_snapshot}
+                                className="h-9 w-9 shrink-0 rounded-md object-cover bg-slate-100"
+                                onError={(e) => { e.target.onerror = null; e.target.src = `https://picsum.photos/seed/${encodeURIComponent(item.product_slug || item.uid || 'item')}/400/400`; }}
+                              />
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold text-ink">
+                                  {item.title_snapshot}
+                                </p>
+                                <p className="mt-0.5 text-xs text-muted">
+                                  Unit Price: {formatCurrency(item.price_snapshot)} &times; Qty {item.quantity}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right font-bold text-ink">
+                              {formatCurrency(
+                                item.line_total ||
+                                  Number(item.price_snapshot) * item.quantity
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between text-sm">
+                        <span className="font-medium text-muted">Store Subtotal:</span>
+                        <span className="text-lg font-bold text-ink">
+                          {formatCurrency(subOrder.subtotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Customer & Shipping Section */}
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-sm">
+                      <h4 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted">
+                        <MapPin size={14} /> Shipping Destination
+                      </h4>
+                      <div className="mt-2 space-y-1 text-ink">
+                        <p className="font-semibold text-base">
+                          {addr.name || "Customer"}
+                        </p>
+                        <p className="flex items-center gap-1 text-xs text-muted">
+                          <Phone size={12} /> {addr.phone || "No phone provided"}
+                        </p>
+                        <p className="text-xs leading-5 text-slate-600 pt-1">
+                          {addr.line1}
+                          {addr.line2 ? `, ${addr.line2}` : ""}
+                          <br />
+                          {addr.city}, {addr.state} — {addr.pincode}
+                        </p>
+                      </div>
+
+                      {/* Parent Order Tracking status indicator */}
+                      {subOrder.parent_order_status && (
+                        <div className="mt-3 border-t border-slate-200 pt-2 text-xs text-muted">
+                          Customer Tracking Bar Status:{" "}
+                          <span className="font-semibold text-ink capitalize">
+                            {subOrder.parent_order_status}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+                    <div className="text-xs text-muted">
+                      {isPlaced && "Customer is awaiting order confirmation."}
+                      {isConfirmed && "Order is confirmed. Prepare packaging and mark shipped once dispatched."}
+                      {isShipped && "Package is in transit. Mark delivered once received by customer."}
+                      {isDelivered && "Order fulfillment successfully completed."}
+                      {isCancelled && "This order has been cancelled."}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {isPlaced && (
+                        <>
+                          <Button
+                            variant="primary"
+                            className="gap-2 bg-brand-600 hover:bg-brand-700"
+                            loading={isPendingThis && updateStatusMutation.variables?.status === "confirmed"}
+                            disabled={updateStatusMutation.isPending}
+                            onClick={() =>
+                              updateStatusMutation.mutate({
+                                subUid: subOrder.uid,
+                                status: "confirmed",
+                              })
+                            }
+                          >
+                            <Check size={16} /> Confirm Order
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            className="gap-1 text-red-600 hover:bg-red-50 hover:border-red-200"
+                            disabled={updateStatusMutation.isPending}
+                            onClick={() => setCancelModalSubUid(subOrder.uid)}
+                          >
+                            <X size={15} /> Cancel
+                          </Button>
+                        </>
+                      )}
+
+                      {isConfirmed && (
+                        <>
+                          <Button
+                            variant="primary"
+                            className="gap-2 bg-indigo-600 hover:bg-indigo-700"
+                            loading={isPendingThis && updateStatusMutation.variables?.status === "shipped"}
+                            disabled={updateStatusMutation.isPending}
+                            onClick={() =>
+                              updateStatusMutation.mutate({
+                                subUid: subOrder.uid,
+                                status: "shipped",
+                              })
+                            }
+                          >
+                            <Truck size={16} /> Mark as Shipped
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            className="gap-1 text-red-600 hover:bg-red-50 hover:border-red-200"
+                            disabled={updateStatusMutation.isPending}
+                            onClick={() => setCancelModalSubUid(subOrder.uid)}
+                          >
+                            <X size={15} /> Cancel
+                          </Button>
+                        </>
+                      )}
+
+                      {isShipped && (
+                        <Button
+                          variant="primary"
+                          className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                          loading={isPendingThis && updateStatusMutation.variables?.status === "delivered"}
+                          disabled={updateStatusMutation.isPending}
+                          onClick={() =>
+                            updateStatusMutation.mutate({
+                              subUid: subOrder.uid,
+                              status: "delivered",
+                            })
+                          }
+                        >
+                          <CheckCircle2 size={16} /> Mark as Delivered
+                        </Button>
+                      )}
+
+                      {isDelivered && (
+                        <div className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                          <CheckCircle2 size={15} /> Fulfilled & Delivered
+                        </div>
+                      )}
+
+                      {isCancelled && (
+                        <div className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700">
+                          <X size={15} /> Order Cancelled
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cancellation Confirmation Modal */}
+      {cancelModalSubUid && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-100">
+                <AlertTriangle size={20} />
+              </div>
+              <h3 className="text-lg font-bold text-ink">Cancel SubOrder?</h3>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-muted">
+              Are you sure you want to cancel this order? The reserved inventory stock will be automatically restored to your catalogue.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                disabled={updateStatusMutation.isPending}
+                onClick={() => setCancelModalSubUid(null)}
+              >
+                Go Back
+              </Button>
+              <Button
+                variant="primary"
+                className="bg-red-600 hover:bg-red-700"
+                loading={updateStatusMutation.isPending}
+                onClick={() =>
+                  updateStatusMutation.mutate({
+                    subUid: cancelModalSubUid,
+                    status: "cancelled",
+                  })
+                }
+              >
+                Yes, Cancel Order
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
