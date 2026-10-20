@@ -2,6 +2,7 @@ import math
 import uuid
 from decimal import Decimal
 from typing import List, Optional
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
 from sqlalchemy import func, select as sa_select
@@ -10,18 +11,55 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.models import Product, ProductImage, Vendor
 
+from .image_storage import (
+    MAX_PRODUCT_IMAGES,
+    canonical_image_url,
+    get_image_filename,
+    verify_image_access_token,
+)
 from .schemas import ProductCreate, ProductListOut, ProductOut, ProductUpdate
 
 
 class ProductService:
-    async def _attach_images(self, product: Product, urls: List[str], session: AsyncSession) -> None:
+    async def _attach_images(
+        self,
+        product: Product,
+        urls: List[str],
+        vendor_id: uuid.UUID,
+        session: AsyncSession,
+    ) -> None:
         """Replace product images with new list."""
+        if len(urls) > MAX_PRODUCT_IMAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You can attach at most {MAX_PRODUCT_IMAGES} images.",
+            )
+        normalized_urls: list[str] = []
+        for raw_url in urls:
+            if not isinstance(raw_url, str) or not raw_url.strip():
+                continue
+            url = raw_url.strip()
+            filename = get_image_filename(url)
+            if filename:
+                parsed = urlsplit(url)
+                token = parse_qs(parsed.query).get("token", [None])[0]
+                if not verify_image_access_token(token, filename, vendor_id):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="One or more product images are not authorized for this vendor.",
+                    )
+                normalized_urls.append(canonical_image_url(filename))
+                continue
+            parsed = urlsplit(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise HTTPException(status_code=400, detail="Product images must use a valid image URL.")
+            normalized_urls.append(url)
         # delete existing
         existing = await session.exec(select(ProductImage).where(ProductImage.product_id == product.uid))
         for img in existing.all():
             await session.delete(img)
         # add new
-        for pos, url in enumerate(urls):
+        for pos, url in enumerate(normalized_urls):
             session.add(ProductImage(product_id=product.uid, url=url, position=pos))
 
     async def get_all(
@@ -130,7 +168,7 @@ class ProductService:
         product = Product(**payload)
         session.add(product)
         await session.flush()  # get uid before images
-        await self._attach_images(product, data.image_urls, session)
+        await self._attach_images(product, data.image_urls, vendor_id, session)
         await session.commit()
         await session.refresh(product)
         return product
@@ -151,7 +189,7 @@ class ProductService:
         if data.stock is not None:
             product.stock = data.stock
         if data.image_urls is not None:
-            await self._attach_images(product, data.image_urls, session)
+            await self._attach_images(product, data.image_urls, product.vendor_id, session)
         await session.commit()
         await session.refresh(product)
         return product

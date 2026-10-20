@@ -48,6 +48,7 @@ import {
 } from "../api/vendor";
 import { BackLink, PageHeader } from "../components/Page";
 import ProductPrice from "../components/ProductPrice";
+import ProductGallery from "../components/ProductGallery";
 import {
   Badge,
   Button,
@@ -1039,7 +1040,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
     product ? (product.images || []).map((image) => image.url) : [],
   );
   const [uploading, setUploading] = useState(false);
-  const [zoomedImage, setZoomedImage] = useState(null);
+  const [previewIndex, setPreviewIndex] = useState(null);
   const mutation = useMutation({
     mutationFn: (payload) =>
       product
@@ -1054,6 +1055,10 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     if (!files.length) return;
+    if (images.length + files.length > 10) {
+      setError("You can add up to 10 product photos.");
+      return;
+    }
     setUploading(true);
     setError("");
     try {
@@ -1065,8 +1070,13 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
       setUploading(false);
     }
   };
-  const removeImage = (index) =>
+  const removeImage = (index) => {
     setImages((current) => current.filter((_, imageIndex) => imageIndex !== index));
+    setPreviewIndex((current) => {
+      if (current === index) return null;
+      return current !== null && current > index ? current - 1 : current;
+    });
+  };
   const moveImage = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
     setImages((current) => {
@@ -1249,18 +1259,29 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
                       event.preventDefault();
                       moveImage(Number(event.dataTransfer.getData("text/plain")), index);
                     }}
-                    className="group relative aspect-square overflow-hidden rounded-lg border border-line bg-slate-100"
+                    onClick={() => setPreviewIndex(index)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setPreviewIndex(index);
+                      }
+                    }}
+                    role="button"
+                    tabIndex="0"
+                    aria-label={`Preview product photo ${index + 1}`}
+                    aria-current={previewIndex === index ? "true" : undefined}
+                    className={`group relative aspect-square overflow-hidden rounded-lg border-2 bg-slate-100 transition focus:outline-none focus:ring-2 focus:ring-brand-500 ${previewIndex === index ? "border-brand-600 shadow-[0_0_0_2px_rgba(11,181,176,0.18)]" : "border-line"}`}
                   >
                     <img src={url} alt={`Product photo ${index + 1}`} className="h-full w-full object-cover" />
                     <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-xs font-semibold text-white">
                       {index + 1}
                     </span>
                     <div className="absolute inset-x-0 bottom-0 flex justify-between bg-black/60 p-1 opacity-0 transition group-hover:opacity-100">
-                      <button type="button" onClick={() => setZoomedImage(url)} className="rounded p-1 text-white hover:bg-white/20" aria-label="Zoom image">
+                      <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewIndex(index); }} className="rounded p-1 text-white hover:bg-white/20" aria-label="Zoom image">
                         <ZoomIn size={16} />
                       </button>
                       <span className="p-1 text-white" title="Drag to reorder"><GripVertical size={16} /></span>
-                      <button type="button" onClick={() => removeImage(index)} className="rounded p-1 text-white hover:bg-red-500" aria-label="Remove image">
+                      <button type="button" onClick={(event) => { event.stopPropagation(); removeImage(index); }} className="rounded p-1 text-white hover:bg-red-500" aria-label="Remove image">
                         <X size={16} />
                       </button>
                     </div>
@@ -1284,12 +1305,20 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
           </div>
         </form>
       </div>
-      {zoomedImage && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-5" onClick={() => setZoomedImage(null)}>
-          <button type="button" onClick={() => setZoomedImage(null)} className="absolute right-5 top-5 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" aria-label="Close image preview">
+      {previewIndex !== null && images[previewIndex] && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 sm:p-8" onClick={() => setPreviewIndex(null)}>
+          <button type="button" onClick={() => setPreviewIndex(null)} className="absolute right-5 top-5 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" aria-label="Close image preview">
             <X size={24} />
           </button>
-          <img src={zoomedImage} alt="Product preview" className="max-h-[90vh] max-w-[90vw] object-contain" onClick={(event) => event.stopPropagation()} />
+          <div className="w-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
+            <ProductGallery
+              images={images}
+              fallback={images[0]}
+              alt={form.title || "Product preview"}
+              initialIndex={previewIndex}
+              onIndexChange={setPreviewIndex}
+            />
+          </div>
         </div>
       )}
     </div>

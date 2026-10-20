@@ -5,7 +5,7 @@ Usage:
     python -m src.db.seed
 
 Creates:
-    1 admin, 3 vendors (auto-approved), 8 categories, 60 products, sample reviews.
+    1 admin, 3 vendors (auto-approved), 8 categories, and 60 products.
 """
 import asyncio
 import random
@@ -17,7 +17,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.main import async_engine, init_db
 from src.db.models import (
     Cart, Category, Order, OrderItem, Product, ProductImage,
-    Review, SubOrder, User, Vendor, Wishlist,
+    SubOrder, User, Vendor, Wishlist,
 )
 from src.auth.utils import generate_passwd_hash
 from src.config import Config
@@ -107,18 +107,6 @@ ADDITIONAL = [
 ]
 
 
-REVIEW_TEXTS = [
-    "Absolutely love this product! Great quality.",
-    "Good value for money, works as expected.",
-    "Decent product, delivery was fast.",
-    "Exceeded expectations. Highly recommend!",
-    "Average product, nothing special.",
-    "Build quality could be better but price is fair.",
-    "Excellent purchase, very satisfied!",
-    "Works perfectly, no complaints so far.",
-]
-
-
 async def seed():
     if Config.APP_ENV not in {"development", "test"}:
         raise RuntimeError("Database seeding is disabled outside development/test environments")
@@ -199,27 +187,17 @@ async def seed():
                 mrp=mrp,
                 stock=random.randint(5, 200),
                 status="active",
-                rating_avg=Decimal(str(round(random.uniform(3.5, 5.0), 2))),
-                rating_count=random.randint(10, 500),
+                # Product ratings are derived only from verified delivered
+                # reviews; seed products start with no customer feedback.
+                rating_avg=Decimal("0.00"),
+                rating_count=0,
             )
             session.add(p)
             await session.flush()
             # add image placeholder
             session.add(ProductImage(product_id=p.uid, url=f"https://picsum.photos/seed/{idx}/400/400", position=0))
 
-        print("Seeding reviews...")
-        # Add sample reviews to first 10 products
-        products_result = await session.exec(select(Product).limit(10))
-        products = products_result.all()
-        for product in products:
-            for i, user in enumerate([admin] + vendor_users[:2]):
-                rev = Review(
-                    rating=random.randint(3, 5),
-                    review_text=random.choice(REVIEW_TEXTS),
-                    user_id=user.uid,
-                    product_id=product.uid,
-                )
-                session.add(rev)
+        print("Skipping sample reviews: ratings require delivered order lines.")
 
         await session.commit()
         print("Seed complete!")

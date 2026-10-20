@@ -375,7 +375,7 @@ uv sync
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-alembic upgrade head        # apply migrations (tables are also created on startup)
+python -m alembic upgrade head  # apply migrations; development startup may create missing tables
 uvicorn src:app --reload --port 8000
 ```
 
@@ -450,6 +450,7 @@ Open **http://localhost:5173**. The Vite dev server proxies `/api` and `/media` 
 | `http://localhost:8000/api/v1/docs` | Swagger UI |
 | `http://localhost:8000/api/v1/redoc` | ReDoc |
 | `http://localhost:8000/health` | Health check |
+| `http://localhost:8000/ready` | Database-backed readiness check |
 
 On Windows you can use `run-backend.cmd` and `run-frontend.cmd`.
 

@@ -28,6 +28,20 @@ async def main() -> None:
             WHERE conrelid = 'public.products'::regclass
             ORDER BY conname
         """,
+        "reviews_columns": """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'reviews'
+            ORDER BY ordinal_position
+        """,
+        "reviews_indexes": """
+            SELECT indexname, indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'reviews'
+            ORDER BY indexname
+        """,
     }
     async with async_engine.connect() as connection:
         for name, query in queries.items():

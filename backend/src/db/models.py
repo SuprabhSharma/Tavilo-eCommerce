@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Optional
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import UniqueConstraint, Index, Numeric, Text
+from sqlalchemy import Index, Numeric, Text, UniqueConstraint, text as sa_text
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 
@@ -301,7 +301,7 @@ class Product(SQLModel, table=True):
     )
     images: list["ProductImage"] = Relationship(
         back_populates="product",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "selectin", "order_by": "ProductImage.position"},
     )
     reviews: list["Review"] = Relationship(
         back_populates="product",
@@ -693,6 +693,10 @@ class Review(SQLModel, table=True):
     product_id: Optional[uuid.UUID] = Field(default=None, foreign_key="products.uid")
     # book_id kept for backward compat during migration
     book_id: Optional[uuid.UUID] = Field(default=None, foreign_key="books.uid")
+    verified_purchase: bool = Field(
+        default=False,
+        sa_column=Column(pg.BOOLEAN, nullable=False, server_default="false"),
+    )
     created_at: datetime = Field(
         sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
     )
@@ -701,8 +705,16 @@ class Review(SQLModel, table=True):
     )
 
     __table_args__ = (
-        # One review per user per product
-        UniqueConstraint("user_id", "product_id", name="uq_review_user_product"),
+        # Only one verified product review per customer.
+        Index(
+            "uq_review_user_product_verified",
+            "user_id",
+            "product_id",
+            unique=True,
+            postgresql_where=sa_text(
+                "product_id IS NOT NULL AND verified_purchase = true"
+            ),
+        ),
     )
 
     user: Optional[User] = Relationship(
