@@ -77,7 +77,7 @@ Recent upgrades focused on **correctness under concurrency, account security and
 - Product listing with **search, category and vendor filters, price range, in-stock filter** and sorting by *newest / price ↑ / price ↓ / rating*, paginated server-side
 - Product detail with image gallery, discount % computed from MRP, rating summary, stock state, attributes and reviews
 - Public **vendor storefronts** at `/store/:slug`
-- Guest cart in `localStorage`; server-side **cart** and **wishlist** for signed-in users
+- Server-side **cart** and **wishlist** for signed-in users
 - Saved **addresses**, checkout, order history, order detail with status tracking and per-seller sub-orders
 
 ### 🏪 Vendor portal
@@ -117,7 +117,7 @@ Recent upgrades focused on **correctness under concurrency, account security and
 flowchart LR
     subgraph Client["🖥️ Browser"]
         UI["React 18 SPA<br/>Vite · Tailwind"]
-        ST["Zustand<br/>auth + guest cart"]
+        ST["Zustand<br/>auth session"]
         RQ["TanStack Query<br/>server cache"]
         UI --- ST
         UI --- RQ
@@ -337,7 +337,7 @@ erDiagram
 | **Email** | fastapi-mail (SMTP) with background delivery |
 | **Media** | Pillow (validation, resize, WebP conversion), static `/media` mount |
 | **Database** | PostgreSQL 16 |
-| **Frontend** | React 18, Vite 6, React Router 6, Tailwind CSS 3, TanStack Query 5, Zustand 5, React Hook Form, Zod, Axios, lucide-react |
+| **Frontend** | React 18, Vite 6, React Router 6, Tailwind CSS 3, TanStack Query 5, Zustand 5, React Hook Form, Axios, lucide-react |
 | **Delivery** | Docker Compose (Postgres + API + dev frontend); multi-stage frontend image served by Nginx 1.27 |
 
 ---
@@ -370,7 +370,7 @@ Tavilo-eCommerce/
 │   │   │                 # Orders, Account, Wishlist, VendorPortal, AdminPortal, Auth
 │   │   ├── components/   # Layout, ProductCard, ui primitives
 │   │   ├── api/          # catalog, shop, auth, vendor clients
-│   │   ├── store/        # Zustand: authStore, cartStore
+│   │   ├── store/        # Zustand: authStore
 │   │   └── lib/          # apiClient (token refresh), queryClient, formatters
 │   ├── Dockerfile  nginx.conf
 │   └── vite.config.js    # dev proxy for /api and /media
@@ -625,7 +625,6 @@ An honest list of what is not in the repository yet:
 - [ ] `backend/.env.example`
 - [ ] Real payment gateway (currently `cod` and an always-succeeds mock)
 - [ ] Automated tests (backend and frontend) and CI
-- [ ] Remove the legacy `books` and `tags` modules left over from the project's starter template
 - [ ] Order-status emails and vendor notifications
 - [ ] Rate limiting on login and password-reset endpoints
 

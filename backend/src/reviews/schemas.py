@@ -4,15 +4,6 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ReviewModel(BaseModel):
-    uid: uuid.UUID
-    rating: int = Field(ge=1, le=5)
-    review_text: str
-    user_id: uuid.UUID
-    book_id: uuid.UUID | None = None
-    created_at: datetime | None = None
-
-
 class ReviewCreateModel(BaseModel):
     rating: int = Field(ge=1, le=5)
     review_text: str = Field(min_length=1, max_length=2000)
@@ -34,7 +25,6 @@ class ReviewOut(BaseModel):
     review_text: str
     user_id: uuid.UUID | None = None
     product_id: uuid.UUID | None = None
-    book_id: uuid.UUID | None = None
     verified_purchase: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None

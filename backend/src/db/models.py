@@ -5,23 +5,21 @@ Model hierarchy:
   User → Vendor (1:1)
   Category (self-referential, 2 levels)
   Product → ProductImage (1:many)
-  Product ↔ Tag (many:many via BookTag for backward compat)
   Cart → CartItem
   Wishlist
   Address
   Order → SubOrder → OrderItem
   Review (attached to Product)
   RevokedToken
-  Book (legacy, kept for backward compatibility)
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import Index, Numeric, Text, UniqueConstraint, text as sa_text
+from sqlalchemy import CheckConstraint, Index, Numeric, Text, UniqueConstraint, text as sa_text
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 
@@ -31,6 +29,11 @@ from sqlmodel import Column, Field, Relationship, SQLModel
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('customer', 'vendor', 'admin')", name="ck_users_role_valid"
+        ),
+    )
 
     uid: uuid.UUID = Field(
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
@@ -43,6 +46,13 @@ class User(SQLModel, table=True):
     role: str = Field(
         sa_column=Column(pg.VARCHAR, nullable=False, server_default="customer")
     )
+    # Incremented whenever every logged-in session must be invalidated (for
+    # example after a password reset).  JWTs carry this value and are rejected
+    # when it no longer matches.
+    session_version: int = Field(
+        default=0,
+        sa_column=Column(pg.INTEGER, nullable=False, server_default="0"),
+    )
     is_verified: bool = Field(default=False)
     password_hash: str = Field(exclude=True)
     created_at: datetime = Field(
@@ -53,33 +63,29 @@ class User(SQLModel, table=True):
     )
 
     # Relationships
-    books: list["Book"] = Relationship(
-        back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
-    )
     reviews: list["Review"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     vendor_profile: Optional["Vendor"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+        sa_relationship_kwargs={"lazy": "noload", "uselist": False},
     )
     cart: Optional["Cart"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin", "uselist": False},
+        sa_relationship_kwargs={"lazy": "noload", "uselist": False},
     )
     wishlist_items: list["Wishlist"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     addresses: list["Address"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     orders: list["Order"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
     def __repr__(self):
@@ -141,6 +147,35 @@ class RevokedToken(SQLModel, table=True):
     )
 
 
+class PasswordResetToken(SQLModel, table=True):
+    """One-time opaque password-reset credential; only its digest is stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    uid: uuid.UUID = Field(
+        sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="users.uid",
+        nullable=False,
+        index=True,
+    )
+    token_hash: str = Field(
+        sa_column=Column(pg.VARCHAR(64), nullable=False, unique=True, index=True)
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True)
+    )
+    used_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True),
+    )
+
+
 class AuditLog(SQLModel, table=True):
     """Immutable record of security-sensitive actions."""
 
@@ -166,6 +201,12 @@ class AuditLog(SQLModel, table=True):
 
 class Vendor(SQLModel, table=True):
     __tablename__ = "vendors"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'suspended')",
+            name="ck_vendors_status_valid",
+        ),
+    )
 
     uid: uuid.UUID = Field(
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
@@ -188,19 +229,19 @@ class Vendor(SQLModel, table=True):
 
     user: Optional[User] = Relationship(
         back_populates="vendor_profile",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     products: list["Product"] = Relationship(
         back_populates="vendor",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     services: list["ServiceOffering"] = Relationship(
         back_populates="vendor",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     sub_orders: list["SubOrder"] = Relationship(
         back_populates="vendor",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
     def __repr__(self):
@@ -230,7 +271,7 @@ class Category(SQLModel, table=True):
 
     products: list["Product"] = Relationship(
         back_populates="category",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
     def __repr__(self):
@@ -273,7 +314,7 @@ class Product(SQLModel, table=True):
         sa_column=Column(Numeric(3, 2), nullable=False, server_default="0.00"),
     )
     rating_count: int = Field(default=0)
-    # Flexible attributes: author, publisher, language for books; etc.
+    # Flexible category-specific attributes.
     attributes: Optional[dict] = Field(
         default=None, sa_column=Column(pg.JSONB, nullable=True)
     )
@@ -305,19 +346,19 @@ class Product(SQLModel, table=True):
     )
     reviews: list["Review"] = Relationship(
         back_populates="product",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     cart_items: list["CartItem"] = Relationship(
         back_populates="product",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     wishlist_items: list["Wishlist"] = Relationship(
         back_populates="product",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     order_items: list["OrderItem"] = Relationship(
         back_populates="product",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
     def __repr__(self):
@@ -400,7 +441,7 @@ class ServiceImage(SQLModel, table=True):
 
     service: Optional[ServiceOffering] = Relationship(
         back_populates="images",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
 
@@ -421,7 +462,7 @@ class Cart(SQLModel, table=True):
 
     user: Optional[User] = Relationship(
         back_populates="cart",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     items: list["CartItem"] = Relationship(
         back_populates="cart",
@@ -448,7 +489,7 @@ class CartItem(SQLModel, table=True):
 
     cart: Optional[Cart] = Relationship(
         back_populates="items",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     product: Optional[Product] = Relationship(
         back_populates="cart_items",
@@ -481,7 +522,7 @@ class Wishlist(SQLModel, table=True):
 
     user: Optional[User] = Relationship(
         back_populates="wishlist_items",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     product: Optional[Product] = Relationship(
         back_populates="wishlist_items",
@@ -517,7 +558,7 @@ class Address(SQLModel, table=True):
 
     user: Optional[User] = Relationship(
         back_populates="addresses",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
 
     def __repr__(self):
@@ -572,7 +613,7 @@ class Order(SQLModel, table=True):
 
     user: Optional[User] = Relationship(
         back_populates="orders",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={"lazy": "noload"},
     )
     sub_orders: list["SubOrder"] = Relationship(
         back_populates="order",
@@ -689,10 +730,8 @@ class Review(SQLModel, table=True):
     rating: int = Field(ge=1, le=5)
     review_text: str = Field(sa_column=Column(Text, nullable=False))
     user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.uid")
-    # product_id — new primary attachment (migrated from book_id)
+    # Product-scoped review attachment.
     product_id: Optional[uuid.UUID] = Field(default=None, foreign_key="products.uid")
-    # book_id kept for backward compat during migration
-    book_id: Optional[uuid.UUID] = Field(default=None, foreign_key="books.uid")
     verified_purchase: bool = Field(
         default=False,
         sa_column=Column(pg.BOOLEAN, nullable=False, server_default="false"),
@@ -725,75 +764,6 @@ class Review(SQLModel, table=True):
         back_populates="reviews",
         sa_relationship_kwargs={"lazy": "selectin"},
     )
-    book: Optional["Book"] = Relationship(
-        back_populates="reviews",
-        sa_relationship_kwargs={"lazy": "selectin"},
-    )
 
     def __repr__(self):
         return f"<Review rating={self.rating}>"
-
-
-# ---------------------------------------------------------------------------
-# Legacy: Book + Tag  (kept — books are one category of products)
-# ---------------------------------------------------------------------------
-
-class BookTag(SQLModel, table=True):
-    book_id: uuid.UUID = Field(default=None, foreign_key="books.uid", primary_key=True)
-    tag_id: uuid.UUID = Field(default=None, foreign_key="tags.uid", primary_key=True)
-
-
-class Tag(SQLModel, table=True):
-    __tablename__ = "tags"
-
-    uid: uuid.UUID = Field(
-        sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
-    )
-    name: str = Field(sa_column=Column(pg.VARCHAR, nullable=False))
-    created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
-    )
-
-    books: list["Book"] = Relationship(
-        link_model=BookTag,
-        back_populates="tags",
-        sa_relationship_kwargs={"lazy": "selectin"},
-    )
-
-    def __repr__(self) -> str:
-        return f"<Tag {self.name}>"
-
-
-class Book(SQLModel, table=True):
-    __tablename__ = "books"
-
-    uid: uuid.UUID = Field(
-        sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
-    )
-    title: str
-    author: str
-    publisher: str
-    published_date: date
-    page_count: int
-    language: str
-    user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.uid")
-    created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
-    )
-    updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
-    )
-
-    user: Optional[User] = Relationship(back_populates="books")
-    reviews: list["Review"] = Relationship(
-        back_populates="book",
-        sa_relationship_kwargs={"lazy": "selectin"},
-    )
-    tags: list["Tag"] = Relationship(
-        link_model=BookTag,
-        back_populates="books",
-        sa_relationship_kwargs={"lazy": "selectin"},
-    )
-
-    def __repr__(self):
-        return f"<Book {self.title}>"

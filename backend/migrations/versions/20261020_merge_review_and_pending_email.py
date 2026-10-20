@@ -1,11 +1,6 @@
-"""merge the review and pending-registration migration heads
-
-Revision ID: 20261020_merge_review_pending
-Revises: 20261020_review_schema_fix, 8a2f6c1d9b40
-"""
+"""Merge point retained for Alembic compatibility."""
 
 from typing import Sequence, Union
-
 
 revision: str = "20261020_merge_review_pending"
 down_revision: Union[str, Sequence[str], None] = (

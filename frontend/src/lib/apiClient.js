@@ -9,11 +9,40 @@ export const api = axios.create({
   timeout: 15000,
 });
 let refreshPromise = null;
+
+let activeRequestCount = 0;
+const notifyRequestState = () => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("tavilo:request-state", {
+      detail: { active: activeRequestCount > 0 },
+    }),
+  );
+};
+
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  activeRequestCount += 1;
+  notifyRequestState();
   return config;
 });
+
+// Keep the indicator accurate for both successful and failed requests. The
+// refresh flow below retries through this client, so the retry is tracked too.
+api.interceptors.response.use(
+  (response) => {
+    activeRequestCount = Math.max(0, activeRequestCount - 1);
+    notifyRequestState();
+    return response;
+  },
+  (error) => {
+    activeRequestCount = Math.max(0, activeRequestCount - 1);
+    notifyRequestState();
+    return Promise.reject(error);
+  },
+);
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {

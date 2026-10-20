@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.auth.dependencies import AccessTokenBearer, RoleChecker
+from src.auth.dependencies import RoleChecker
 from src.db.main import get_session
 from src.errors import ProductNotFound
 
@@ -15,7 +15,6 @@ category_router = APIRouter()
 service = CategoryService()
 
 admin_only = Depends(RoleChecker(["admin"]))
-access_token = Depends(AccessTokenBearer())
 
 
 # ── Public ────────────────────────────────────────────────────────────────────

@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from src.config import Config
+# Import model modules so SQLModel.metadata is complete for Alembic's
+# autogenerate/check tooling.  Migration DDL remains explicit and is not
+# silently replaced by create_all.
+from src.db import models  # noqa: F401
 
 database_url = Config.DATABASE_URL
 

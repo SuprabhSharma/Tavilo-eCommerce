@@ -2,8 +2,6 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
-from src.books.schemas import Book
-from src.reviews.schemas import ReviewModel
 
 
 class UserCreateModel(BaseModel):
@@ -27,14 +25,6 @@ class UserModel(BaseModel):
     updated_at: datetime | None = None
     
     
-class UserBooksModel(UserModel):
-    books : list[Book]
-    reviews : list[ReviewModel]
-    
-    
-
-
-
 class UserLoginModel(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=72)
@@ -57,5 +47,8 @@ class EmailVerificationTokenModel(BaseModel):
 
 
 class PasswordResetConfirmModel(BaseModel):
+    # Sent in the request body after the browser reads it from a URL fragment;
+    # it is never part of an API URL or a proxy/access-log path.
+    token: str = Field(min_length=43, max_length=128)
     new_password: str
     confirm_new_password: str

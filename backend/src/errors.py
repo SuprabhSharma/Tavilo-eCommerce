@@ -1,119 +1,97 @@
 
 from typing import Any, Callable  # noqa: UP035
 
-from fastapi import FastAPI, status
-from fastapi.requests import Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, status  # type: ignore[import-not-found]
+from fastapi.requests import Request  # type: ignore[import-not-found]
+from fastapi.responses import JSONResponse  # type: ignore[import-not-found]
 from sqlalchemy.exc import SQLAlchemyError
 
 
-class BooklyException(Exception):
-    """This is the base class for all bookly errors"""
+class MarketplaceException(Exception):
+    """Base class for Tavilo marketplace errors."""
 
 
 
-class InvalidToken(BooklyException):
+class InvalidToken(MarketplaceException):
     """User has provided an invalid or expired token"""
 
 
-class InvalidVerificationToken(BooklyException):
+class InvalidVerificationToken(MarketplaceException):
     """The email verification link is invalid, expired, or already used."""
 
 
 
 
-class RevokedToken(BooklyException):
+class RevokedToken(MarketplaceException):
     """User has provided a token that has been revoked"""
 
 
 
 
-class AccessTokenRequired(BooklyException):
+class AccessTokenRequired(MarketplaceException):
     """User has provided a refresh token when an access token is needed"""
 
 
 
 
-class RefreshTokenRequired(BooklyException):
+class RefreshTokenRequired(MarketplaceException):
     """User has provided an access token when a refresh token is needed"""
 
 
 
 
-class UserAlreadyExists(BooklyException):
+class UserAlreadyExists(MarketplaceException):
     """User has provided an email for a user who exists during sign up."""
 
 
 
 
-class InvalidCredentials(BooklyException):
+class InvalidCredentials(MarketplaceException):
     """User has provided wrong email or password during log in."""
 
 
 
 
-class InsufficientPermission(BooklyException):
+class InsufficientPermission(MarketplaceException):
     """User does not have the neccessary permissions to perform an action."""
 
 
 
 
-class BookNotFound(BooklyException):
-    """Book Not found"""
-
-
-
-
-class ReviewNotFound(BooklyException):
+class ReviewNotFound(MarketplaceException):
     """Review Not found"""
 
 
 
 
-class ProductNotFound(BooklyException):
+class ProductNotFound(MarketplaceException):
     """Product Not found"""
 
 
 
 
-class VendorNotFound(BooklyException):
+class VendorNotFound(MarketplaceException):
     """Vendor Not found"""
 
 
-class VendorAlreadyExists(BooklyException):
+class VendorAlreadyExists(MarketplaceException):
     """User has already registered or applied for a vendor store"""
 
 
-class VendorSlugAlreadyExists(BooklyException):
+class VendorSlugAlreadyExists(MarketplaceException):
     """Vendor store slug / handle is already taken"""
 
 
-class ServiceNotFound(BooklyException):
+class ServiceNotFound(MarketplaceException):
     """Service offering not found"""
 
 
-class OrderNotFound(BooklyException):
+class OrderNotFound(MarketplaceException):
     """Order Not found"""
 
 
 
-
-
-
-
-class TagNotFound(BooklyException):
-    """Tag Not found"""
-
-
-
-
-class TagAlreadyExists(BooklyException):
-    """Tag already exists"""
-
-
-
-
-class UserNotFound(BooklyException):
+class UserNotFound(MarketplaceException):
     """User Not found"""
 
 
@@ -123,7 +101,7 @@ class AccountNotVerified(Exception):
     """Account not yet verified"""
 
 
-class EmailDeliveryUnavailable(BooklyException):
+class EmailDeliveryUnavailable(MarketplaceException):
     """The configured email provider could not accept a message right now."""
 
 
@@ -134,7 +112,7 @@ def create_exception_handler(
     status_code: int, initial_detail: Any
 ) -> Callable[[Request, Exception], JSONResponse]:
 
-    async def exception_handler(request: Request, exc: BooklyException):
+    async def exception_handler(request: Request, exc: MarketplaceException):
 
         return JSONResponse(content=initial_detail, status_code=status_code)
 
@@ -160,16 +138,6 @@ def register_all_errors(app: FastAPI):
             initial_detail={
                 "message": "User not found",
                 "error_code": "user_not_found",
-            },
-        ),
-    )
-    app.add_exception_handler(
-        BookNotFound,
-        create_exception_handler(
-            status_code=status.HTTP_404_NOT_FOUND,
-            initial_detail={
-                "message": "Book not found",
-                "error_code": "book_not_found",
             },
         ),
     )
@@ -247,25 +215,6 @@ def register_all_errors(app: FastAPI):
             },
         ),
     )
-    app.add_exception_handler(
-        TagNotFound,
-        create_exception_handler(
-            status_code=status.HTTP_404_NOT_FOUND,
-            initial_detail={"message": "Tag Not Found", "error_code": "tag_not_found"},
-        ),
-    )
-
-    app.add_exception_handler(
-        TagAlreadyExists,
-        create_exception_handler(
-            status_code=status.HTTP_403_FORBIDDEN,
-            initial_detail={
-                "message": "Tag Already exists",
-                "error_code": "tag_exists",
-            },
-        ),
-    )
-
     app.add_exception_handler(
         ReviewNotFound,
         create_exception_handler(

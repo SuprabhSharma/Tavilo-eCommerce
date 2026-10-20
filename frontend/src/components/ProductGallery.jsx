@@ -117,6 +117,9 @@ export default function ProductGallery({
       alt={`${alt}, image ${index + 1} of ${galleryImages.length}`}
       width="800"
       height="800"
+      loading={index === activeIndex ? "eager" : "lazy"}
+      decoding="async"
+      fetchPriority={index === activeIndex ? "high" : "auto"}
       draggable="false"
       className={`aspect-square w-full select-none ${className || "object-cover"}`}
     />

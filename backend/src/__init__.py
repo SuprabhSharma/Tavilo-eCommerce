@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -6,17 +7,15 @@ from fastapi.responses import JSONResponse
 from src.addresses.routes import address_router
 from src.admin.routes import admin_router
 from src.auth.routers import auth_router
-from src.books.routes import book_router
 from src.cart.routes import cart_router
 from src.categories.routes import category_router
-from src.config import Config
+from src.config import Config, configure_application_logging
 from src.db.main import async_engine, check_db_connection, init_db
 from src.orders.routes import order_router
 from src.products.image_storage import PRODUCT_IMAGE_DIR
 from src.products.routes import product_router, serve_product_image
-from src.reviews.routes import product_review_router, review_router
+from src.reviews.routes import product_review_router
 from src.services.routes import service_router
-from src.tags.routes import tags_router
 from src.vendors.routes import vendor_router
 from src.wishlist.routes import wishlist_router
 
@@ -24,9 +23,13 @@ from .errors import register_all_errors
 from .middleware import register_middleware
 
 
+configure_application_logging(app_env=Config.APP_ENV, log_level=Config.LOG_LEVEL)
+logger = logging.getLogger("tavilo.application")
+
+
 @asynccontextmanager
 async def life_span(app: FastAPI):
-    print("Server is Starting ...")
+    logger.info("Server is starting")
     # Alembic owns schema changes in production.  Keeping create_all limited
     # to local development prevents concurrent workers from racing migrations
     # and makes schema drift visible instead of silently masking it.
@@ -38,7 +41,7 @@ async def life_span(app: FastAPI):
         yield
     finally:
         await async_engine.dispose()
-        print("Server is being stopped")
+        logger.info("Server is stopping")
 
 
 version = "v1"
@@ -82,10 +85,7 @@ async def ready():
 
 # ── Router mounts under /api/v1 ───────────────────────────────────────────────
 app.include_router(auth_router,     prefix=f"{API_PREFIX}/auth",       tags=["auth"])
-app.include_router(book_router,     prefix=f"{API_PREFIX}/books",      tags=["books"])
 app.include_router(product_review_router, prefix=f"{API_PREFIX}",     tags=["reviews"])
-app.include_router(review_router,   prefix=f"{API_PREFIX}/reviews",    tags=["reviews"])
-app.include_router(tags_router,     prefix=f"{API_PREFIX}/tags",       tags=["tags"])
 app.include_router(service_router,  prefix=f"{API_PREFIX}/services",   tags=["services"])
 app.include_router(category_router, prefix=f"{API_PREFIX}/categories", tags=["categories"])
 app.include_router(product_router,  prefix=f"{API_PREFIX}/products",   tags=["products"])

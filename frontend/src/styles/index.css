@@ -3,6 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes loading-bar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(180%); }
+  100% { transform: translateX(320%); }
+}
+
 :root { --brand-50: #e9fbfa; --brand-100: #c8f3f1; --brand-500: #20c7c0; --brand-600: #0bb5b0; --brand-700: #078d8a; --accent: #f5a623; --ink: #10284b; --muted: #64748b; --surface: #ffffff; --line: #dbe7ed; }
 * { box-sizing: border-box; }
 html { scroll-behavior: auto; }

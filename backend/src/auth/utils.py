@@ -33,6 +33,16 @@ def hash_email_verification_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def create_password_reset_token() -> tuple[str, str]:
+    """Create an opaque reset token and the digest safe to persist."""
+    raw_token = secrets.token_urlsafe(32)
+    return raw_token, hash_password_reset_token(raw_token)
+
+
+def hash_password_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def generate_passwd_hash(password: str) -> str:
     hash = passwd_context.hash(password)
 
@@ -50,7 +60,15 @@ def create_access_tokens(
 
     payload = {}
 
+    # ``sv`` is deliberately top-level so all token types can be invalidated
+    # together without keeping a row for every issued JWT.
+    user_data = dict(user_data)
+    session_version = user_data.pop("session_version", None)
+    if not isinstance(session_version, int) or isinstance(session_version, bool):
+        raise ValueError("session_version is required when issuing a token")
+
     payload["user"] = user_data
+    payload["sv"] = session_version
     payload["exp"] = datetime.now(timezone.utc) + (
         expiry if expiry is not None else timedelta(seconds=ACCESS_TOKEN_EXPIRY)
     )

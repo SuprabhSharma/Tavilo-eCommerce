@@ -405,15 +405,29 @@ export function ForgotPassword() {
   );
 }
 export function ResetPassword() {
-  const { token } = useParams();
   const navigate = useNavigate();
+  const [token, setToken] = useState("");
   const {
     register,
     handleSubmit,
     formState: { isSubmitting },
   } = useForm();
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const resetToken = fragment.get("token");
+    if (!resetToken) {
+      setError("This password reset link is invalid or expired.");
+      return;
+    }
+    setToken(resetToken);
+    // Keep the secret out of local browser history once it has been read.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
   const submit = async (data) => {
+    if (!token) return;
     try {
       await resetPassword(token, {
         new_password: data.password,

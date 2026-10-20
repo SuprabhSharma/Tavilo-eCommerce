@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select as sa_select
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -39,17 +41,44 @@ async def list_users(session: AsyncSession = Depends(get_session)):
 
 @admin_router.patch("/users/{uid}/role")
 async def set_user_role(
-    uid: str,
+    uid: uuid.UUID,
     role: str = Query(pattern="^(customer|vendor|admin)$"),
     current_user: User = Depends(RoleChecker(["admin"])),
     session: AsyncSession = Depends(get_session),
 ):
-    import uuid
-    result = await session.exec(select(User).where(User.uid == uuid.UUID(uid)))
+    # Becoming a vendor is a state transition owned by the approval flow.  A
+    # bare role assignment would create an account with seller access but no
+    # approved store, and changing any role on a vendor would break that pair.
+    if role == "vendor":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Use the vendor approval workflow to grant vendor access.",
+        )
+    if uid == current_user.uid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrators cannot change their own role.",
+        )
+
+    result = await session.exec(select(User).where(User.uid == uid).with_for_update())
     user = result.first()
     if not user:
         raise UserNotFound()
+
+    vendor = (
+        await session.exec(select(Vendor).where(Vendor.user_id == user.uid))
+    ).first()
+    if vendor:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Vendor account roles are managed only through vendor approval and suspension.",
+        )
+
+    if user.role == role:
+        return {"uid": str(user.uid), "role": user.role}
+
     user.role = role
+    user.session_version += 1
     await record_audit(
         session,
         "admin.role_changed",

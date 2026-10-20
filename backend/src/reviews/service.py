@@ -1,4 +1,3 @@
-import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -7,17 +6,15 @@ from fastapi import status
 from fastapi.exceptions import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import desc, select
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.service import UserService
-from src.books.service import BookService
 from src.db.models import Order, OrderItem, Product, Review, SubOrder
-from src.errors import BookNotFound, ProductNotFound, ReviewNotFound, UserNotFound
+from src.errors import ProductNotFound, ReviewNotFound, UserNotFound
 
 from .schemas import ReviewCreateModel
 
-book_service = BookService()
 user_service = UserService()
 
 
@@ -82,24 +79,6 @@ class ReviewService:
             "can_review": await self._has_delivered_purchase(user.uid, product.uid, session),
             "review": existing,
         }
-
-    async def add_review_to_book(
-        self, user_email: str, book_uid: str, review_data: ReviewCreateModel, session: AsyncSession,
-    ):
-        try:
-            book = await book_service.get_book(book_uid=book_uid, session=session)
-            user = await user_service.get_user_by_email(email=user_email, session=session)
-            if not book:
-                raise BookNotFound()
-            if not user:
-                raise UserNotFound()
-            new_review = Review(**review_data.model_dump(), user=user, book=book)
-            session.add(new_review)
-            await session.commit()
-            return new_review
-        except Exception as e:
-            logging.exception(e)
-            raise HTTPException(detail="Oops... something went wrong!", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     async def add_review_to_product(
         self, user_email: str, product_id: uuid.UUID, review_data: ReviewCreateModel, session: AsyncSession,
@@ -214,20 +193,4 @@ class ReviewService:
         await session.delete(review)
         await session.flush()
         await self._refresh_product_rating(product, session)
-        await session.commit()
-
-    async def get_review(self, review_uid: str, session: AsyncSession):
-        result = await session.exec(select(Review).where(Review.uid == review_uid))
-        return result.first()
-
-    async def get_all_reviews(self, session: AsyncSession):
-        result = await session.exec(select(Review).order_by(desc(Review.created_at)))
-        return result.all()
-
-    async def delete_review_to_from_book(self, review_uid: str, user_email: str, session: AsyncSession):
-        user = await user_service.get_user_by_email(user_email, session)
-        review = await self.get_review(review_uid, session)
-        if not review or (review.user_id != user.uid):
-            raise HTTPException(detail="Cannot delete this review", status_code=status.HTTP_403_FORBIDDEN)
-        await session.delete(review)
         await session.commit()

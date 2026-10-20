@@ -5,6 +5,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.models import User, Vendor
+from src.errors import InsufficientPermission, UserNotFound
 
 from .schemas import VendorApply, VendorUpdate
 
@@ -32,6 +33,15 @@ class VendorService:
 
     async def apply(self, user_id: uuid.UUID, data: VendorApply, session: AsyncSession) -> Vendor:
         from src.errors import VendorAlreadyExists, VendorSlugAlreadyExists
+        user_result = await session.exec(
+            select(User).where(User.uid == user_id).with_for_update()
+        )
+        user = user_result.first()
+        if not user:
+            raise UserNotFound()
+        if user.role != "customer":
+            raise InsufficientPermission()
+
         existing_vendor = await self.get_by_user_id(user_id, session)
         if existing_vendor:
             raise VendorAlreadyExists()
@@ -65,10 +75,30 @@ class VendorService:
         return vendor
 
     async def set_status(self, vendor: Vendor, status: str, session: AsyncSession) -> Vendor:
-        vendor.status = status
-        user_result = await session.exec(select(User).where(User.uid == vendor.user_id))
+        if status not in {"approved", "suspended"}:
+            raise ValueError("Unsupported vendor status transition")
+
+        # Lock the account while changing the coupled vendor/status state.
+        # The deferred database constraint independently enforces the same
+        # invariant for every writer, including direct SQL jobs.
+        user_result = await session.exec(
+            select(User).where(User.uid == vendor.user_id).with_for_update()
+        )
         user = user_result.first()
-        if user:
-            user.role = "vendor" if status == "approved" else "customer"
+        if not user:
+            raise RuntimeError("Vendor is missing its user account")
+        if user.role == "admin":
+            from fastapi import HTTPException, status as http_status
+
+            raise HTTPException(
+                status_code=http_status.HTTP_409_CONFLICT,
+                detail="An administrator cannot own a vendor profile.",
+            )
+
+        vendor.status = status
+        next_role = "vendor" if status == "approved" else "customer"
+        if user.role != next_role:
+            user.role = next_role
+            user.session_version += 1
         await session.flush()
         return vendor

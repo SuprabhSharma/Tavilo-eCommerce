@@ -56,8 +56,13 @@ class TokenBearer(HTTPBearer):
         return token_data
 
     def token_valid(self, token_data: dict | None) -> bool:
-        required_claims = {"user", "jti", "refresh", "exp"}
-        return isinstance(token_data, dict) and required_claims.issubset(token_data)
+        required_claims = {"user", "jti", "refresh", "exp", "sv"}
+        return (
+            isinstance(token_data, dict)
+            and required_claims.issubset(token_data)
+            and isinstance(token_data["sv"], int)
+            and not isinstance(token_data["sv"], bool)
+        )
     
     def verify_token_data(self , token_data):
         raise NotImplementedError("Please override this method in child classes")
@@ -87,13 +92,26 @@ async def get_current_user(
     
 ):
     
-    user_email = token_details["user"]["email"]
-    
-    user = await user_service.get_user_by_email(user_email , session)
+    token_user = token_details.get("user")
+    if not isinstance(token_user, dict):
+        raise InvalidToken()
+
+    user_uid = token_user.get("user_uid")
+    user_email = token_user.get("email")
+    if not isinstance(user_uid, str) or not isinstance(user_email, str):
+        raise InvalidToken()
+
+    user = await user_service.get_user_by_uid(user_uid, session)
 
     # A token can remain structurally valid after its user has been deleted.
     # Treat that token as invalid instead of allowing a later attribute error.
     if user is None:
+        raise InvalidToken()
+
+    # Do not trust identity or authorization state embedded in a JWT.  The
+    # UID/email binding also prevents a token being accepted after an account
+    # identity change, and the session version invalidates every old session.
+    if user.email != user_email or user.session_version != token_details["sv"]:
         raise InvalidToken()
     
     return user
@@ -117,8 +135,8 @@ class RoleChecker:
         
         
         
-    def __call__(self, current_user: User = Depends(get_verified_user)) -> any:
+    def __call__(self, current_user: User = Depends(get_verified_user)) -> User:
         if current_user.role in self.allowed_roles:
-            return True
+            return current_user
         
         raise InsufficientPermission()

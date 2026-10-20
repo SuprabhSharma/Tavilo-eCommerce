@@ -1,13 +1,12 @@
 import uuid
 from decimal import Decimal
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.auth.dependencies import AccessTokenBearer, RoleChecker, get_verified_user
+from src.auth.dependencies import RoleChecker, get_verified_user
 from src.db.main import get_session
 from src.db.models import Product, ProductImage, User, Vendor
 from src.errors import InsufficientPermission, ProductNotFound, VendorNotFound
@@ -29,6 +28,11 @@ service = ProductService()
 
 
 async def get_approved_vendor(current_user: User = Depends(get_verified_user), session: AsyncSession = Depends(get_session)) -> Vendor:
+    # An approved store alone is not authority.  The account must currently be
+    # in the vendor role as well, so a suspension/demotion immediately removes
+    # product, service, and fulfilment privileges.
+    if current_user.role != "vendor":
+        raise InsufficientPermission()
     result = await session.exec(select(Vendor).where(Vendor.user_id == current_user.uid, Vendor.status == "approved"))
     vendor = result.first()
     if not vendor:

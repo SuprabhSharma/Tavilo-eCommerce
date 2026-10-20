@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.auth.dependencies import get_verified_user
 from src.db.main import get_session
 from src.db.models import User, Vendor
-from src.errors import VendorNotFound
+from src.errors import InsufficientPermission, VendorNotFound
 
 from .schemas import CheckoutRequest, OrderOut, SubOrderOut, SubOrderStatusUpdate, VendorSubOrderOut
 from .service import OrderService
@@ -18,6 +18,8 @@ service = OrderService()
 
 async def get_approved_vendor(current_user: User = Depends(get_verified_user), session: AsyncSession = Depends(get_session)) -> Vendor:
     from sqlmodel import select
+    if current_user.role != "vendor":
+        raise InsufficientPermission()
     result = await session.exec(select(Vendor).where(Vendor.user_id == current_user.uid, Vendor.status == "approved"))
     vendor = result.first()
     if not vendor:

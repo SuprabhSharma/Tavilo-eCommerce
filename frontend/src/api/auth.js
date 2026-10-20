@@ -12,6 +12,6 @@ export const requestPasswordReset = (email) =>
   api.post("/auth/password-reset-request", { email }).then((r) => r.data);
 export const resetPassword = (token, payload) =>
   api
-    .post(`/auth/password-reset-confirm/${token}`, payload)
+    .post("/auth/password-reset-confirm", { ...payload, token })
     .then((r) => r.data);
 export const logout = () => api.post("/auth/logout").then((r) => r.data);

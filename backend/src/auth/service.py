@@ -19,15 +19,18 @@ class UserService:
         user = result.first()
         
         return user
-    
-    
-    async def user_exists(self, email , session : AsyncSession):
-        user = await self.get_user_by_email(email , session)
-        
-        
-        
-        return user is not None
 
+    async def get_user_by_uid(self, user_uid: str, session: AsyncSession) -> User | None:
+        """Fetch by the immutable JWT subject, rejecting malformed UUIDs."""
+        import uuid
+
+        try:
+            uid = uuid.UUID(user_uid)
+        except (TypeError, ValueError, AttributeError):
+            return None
+        return await session.get(User, uid)
+    
+    
     async def username_exists(self, username: str, session: AsyncSession) -> bool:
         result = await session.exec(select(User).where(User.username == username))
         return result.first() is not None

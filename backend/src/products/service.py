@@ -5,7 +5,7 @@ from typing import List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
-from sqlalchemy import func, select as sa_select
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 

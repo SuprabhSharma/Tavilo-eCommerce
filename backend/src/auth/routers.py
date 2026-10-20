@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -10,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.config import Config
 from src.audit import record_audit
 from src.db.main import get_session
-from src.db.models import PendingRegistration, User
+from src.db.models import PasswordResetToken, PendingRegistration, User
 from src.errors import (
     AccountNotVerified,
     EmailDeliveryUnavailable,
@@ -38,17 +39,18 @@ from .schemas import (
     EmailVerificationTokenModel,
     PasswordResetConfirmModel,
     PasswordResetRequestModel,
-    UserBooksModel,
     UserCreateModel,
     UserLoginModel,
+    UserModel,
 )
 from .service import TokenBlocklistService, UserService
 from .utils import (
     create_access_tokens,
     create_email_verification_token,
-    create_url_safe_token,
+    create_password_reset_token,
     decode_url_safe_token,
     generate_passwd_hash,
+    hash_password_reset_token,
     hash_email_verification_token,
     normalize_email,
     verify_password,
@@ -58,6 +60,8 @@ from .utils import (
 REFRESH_TOKEN_EXPIRY = 2
 EMAIL_VERIFICATION_TTL = timedelta(hours=24)
 EMAIL_RESEND_COOLDOWN = timedelta(seconds=60)
+PASSWORD_RESET_TTL = timedelta(minutes=30)
+PASSWORD_RESET_COOLDOWN = timedelta(seconds=60)
 
 auth_router = APIRouter()
 user_service = UserService()
@@ -358,11 +362,16 @@ async def login_users(
                     "email": user.email,
                     "user_uid": str(user.uid),
                     "role": user.role,
+                    "session_version": user.session_version,
                 }
             )
 
             refresh_token = create_access_tokens(
-                user_data={"email": user.email, "user_uid": str(user.uid)},
+                user_data={
+                    "email": user.email,
+                    "user_uid": str(user.uid),
+                    "session_version": user.session_version,
+                },
                 refresh=True,
                 expiry=timedelta(days=REFRESH_TOKEN_EXPIRY),
             )
@@ -395,10 +404,16 @@ async def get_new_access_token(
 
     if datetime.fromtimestamp(expiry_timestamp, tz=timezone.utc) > datetime.now(timezone.utc):
         # Re-read user from DB so the new access token always carries the current role
-        user_email = token_details["user"]["email"]
-        user = await user_service.get_user_by_email(user_email, session)
+        token_user = token_details.get("user")
+        if not isinstance(token_user, dict):
+            raise InvalidToken()
+        user = await user_service.get_user_by_uid(token_user.get("user_uid"), session)
 
-        if not user:
+        if (
+            not user
+            or user.email != token_user.get("email")
+            or user.session_version != token_details.get("sv")
+        ):
             raise InvalidToken()
 
         if not user.is_verified:
@@ -409,6 +424,7 @@ async def get_new_access_token(
                 "email": user.email,
                 "user_uid": str(user.uid),
                 "role": user.role,
+                "session_version": user.session_version,
             }
         )
 
@@ -418,7 +434,11 @@ async def get_new_access_token(
             session,
         )
         new_refresh_token = create_access_tokens(
-            user_data={"email": user.email, "user_uid": str(user.uid)},
+            user_data={
+                "email": user.email,
+                "user_uid": str(user.uid),
+                "session_version": user.session_version,
+            },
             refresh=True,
             expiry=timedelta(days=REFRESH_TOKEN_EXPIRY),
         )
@@ -438,7 +458,7 @@ async def get_new_access_token(
     raise InvalidToken()
 
 
-@auth_router.get("/me", response_model=UserBooksModel)
+@auth_router.get("/me", response_model=UserModel)
 async def get_current_user_me(user=current_user_dependency, _: bool = role_dependency):
     return user
 
@@ -477,7 +497,11 @@ async def revoke_token(
 
 
 @auth_router.post("/password-reset-request")
-async def password_reset_request(email_data: PasswordResetRequestModel):
+async def password_reset_request(
+    email_data: PasswordResetRequestModel,
+    bg_tasks: BackgroundTasks,
+    session: AsyncSession = session_dependency,
+):
     email = normalize_email(email_data.email)
 
     # Always return the same response — do not reveal whether the email exists
@@ -488,14 +512,60 @@ async def password_reset_request(email_data: PasswordResetRequestModel):
         status_code=status.HTTP_200_OK,
     )
 
-    token = create_url_safe_token({"email": normalize_email(email), "purpose": "password-reset"})
+    # Do not disclose whether an account exists.  For a real, verified account
+    # rotate every outstanding credential so only the newest email can work.
+    user = await user_service.get_user_by_email(email, session)
+    if not user or not user.is_verified:
+        return SUCCESS_RESPONSE
 
-    # Link points to FRONTEND, not API
-    link = f"{Config.FRONTEND_URL}/reset-password/{token}"
+    now = datetime.now(timezone.utc)
+    recent = await session.exec(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.uid,
+            PasswordResetToken.created_at > now - PASSWORD_RESET_COOLDOWN,
+        )
+        .order_by(PasswordResetToken.created_at.desc())
+    )
+    if recent.first():
+        return SUCCESS_RESPONSE
+
+    # A token is random and opaque.  The database only receives a SHA-256
+    # digest, so a database read cannot be used to reset an account.
+    raw_token, token_hash = create_password_reset_token()
+    await session.exec(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.uid,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+    session.add(
+        PasswordResetToken(
+            user_id=user.uid,
+            token_hash=token_hash,
+            expires_at=now + PASSWORD_RESET_TTL,
+            created_at=now,
+        )
+    )
+    # Remove expired rows opportunistically without retaining security
+    # credentials indefinitely.
+    await session.exec(
+        delete(PasswordResetToken).where(
+            PasswordResetToken.expires_at <= now,
+        )
+    )
+    await session.commit()
+
+    # The fragment is never sent in HTTP requests, avoiding browser, proxy,
+    # server and API request-path logs.  The frontend POSTs it in the body.
+    link = f"{Config.FRONTEND_URL.rstrip('/')}/reset-password#token={quote(raw_token, safe='')}"
 
     html_message = f"""
     <h1>Reset Your Password</h1>
     <p>Please click <a href="{link}">here</a> to reset your password.</p>
+    <p>This link expires in 30 minutes and can only be used once.</p>
     """
     subject = "Reset Your Password"
 
@@ -505,17 +575,15 @@ async def password_reset_request(email_data: PasswordResetRequestModel):
         body=html_message,
     )
 
-    try:
-        await deliver_message(message, event="password_reset")
-    except Exception:
-        pass  # Swallow silently — never reveal email existence
+    # Queue delivery after the response is sent. This keeps the endpoint fast
+    # while the background helper still swallows delivery failures.
+    bg_tasks.add_task(deliver_message_in_background, message, event="password_reset")
 
     return SUCCESS_RESPONSE
 
 
-@auth_router.post("/password-reset-confirm/{token}")
+@auth_router.post("/password-reset-confirm")
 async def reset_account_password(
-    token: str,
     passwords: PasswordResetConfirmModel,
     session: AsyncSession = session_dependency,
 ):
@@ -528,28 +596,52 @@ async def reset_account_password(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    token_data = decode_url_safe_token(token, max_age=60 * 60)
-
-    if not token_data or token_data.get("purpose") != "password-reset":
+    now = datetime.now(timezone.utc)
+    token_hash = hash_password_reset_token(passwords.token)
+    result = await session.exec(
+        select(PasswordResetToken)
+        .where(PasswordResetToken.token_hash == token_hash)
+        .with_for_update()
+    )
+    reset_token = result.first()
+    if (
+        not reset_token
+        or reset_token.used_at is not None
+        or reset_token.expires_at <= now
+    ):
         raise InvalidToken()
 
-    user_email = token_data.get("email")
+    # Lock the user too.  This makes reset-token consumption, password change,
+    # and global session invalidation one atomic transaction.
+    user_result = await session.exec(
+        select(User).where(User.uid == reset_token.user_id).with_for_update()
+    )
+    user = user_result.first()
+    if not user:
+        raise InvalidToken()
 
-    if user_email:
-        user = await user_service.get_user_by_email(user_email, session)
-
-        if not user:
-            raise UserNotFound()
-
-        passwd_hash = generate_passwd_hash(new_password)
-        await user_service.update_user(user, {"password_hash": passwd_hash}, session)
-
-        return JSONResponse(
-            content={"message": "Password reset successfully"},
-            status_code=status.HTTP_200_OK,
+    user.password_hash = generate_passwd_hash(new_password)
+    user.session_version += 1
+    reset_token.used_at = now
+    # Do not leave a second active token usable after a successful reset.
+    await session.exec(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.uid,
+            PasswordResetToken.used_at.is_(None),
         )
+        .values(used_at=now)
+    )
+    await record_audit(
+        session,
+        "auth.password_reset",
+        actor_user_id=user.uid,
+        target_type="user",
+        target_id=str(user.uid),
+    )
+    await session.commit()
 
     return JSONResponse(
-        content={"message": "Error occurred during password reset.", "error_code": "invalid_token"},
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"message": "Password reset successfully"},
+        status_code=status.HTTP_200_OK,
     )

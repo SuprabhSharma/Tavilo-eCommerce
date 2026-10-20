@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
 from sqlmodel import select, text
@@ -100,6 +100,7 @@ class OrderService:
         # (deterministic order prevents deadlocks when two carts share overlapping items)
         sorted_items = sorted(cart.items, key=lambda it: it.product_id)
         products_map: Dict[uuid.UUID, Product] = {}
+        vendors_map: Dict[uuid.UUID, Vendor] = {}
         vendor_groups: Dict[uuid.UUID, List[CartItem]] = {}
 
         for item in sorted_items:
@@ -124,8 +125,14 @@ class OrderService:
 
             p_res = await session.exec(select(Product).where(Product.uid == item.product_id))
             product = p_res.first()
-            v_check = (await session.exec(select(Vendor).where(Vendor.uid == product.vendor_id))).first()
-            if not v_check or v_check.status != "approved":
+            vendor = vendors_map.get(product.vendor_id)
+            if vendor is None:
+                vendor = (await session.exec(
+                    select(Vendor).where(Vendor.uid == product.vendor_id)
+                )).first()
+                if vendor is not None:
+                    vendors_map[vendor.uid] = vendor
+            if not vendor or vendor.status != "approved":
                 raise HTTPException(status_code=400, detail=f"Product unavailable: {product.title}")
             products_map[product.uid] = product
             vendor_groups.setdefault(product.vendor_id, []).append(item)
@@ -192,10 +199,7 @@ class OrderService:
                 status="placed",
             )
             session.add(sub)
-            await session.flush()
-
-            v_result = await session.exec(select(Vendor).where(Vendor.uid == vendor_id))
-            vendor_record = v_result.first()
+            vendor_record = vendors_map.get(vendor_id)
             store_name = vendor_record.store_name if vendor_record else None
 
             order_items_out = []
@@ -211,7 +215,6 @@ class OrderService:
                     quantity=item.quantity,
                 )
                 session.add(oi)
-                await session.flush()
                 order_items_out.append(OrderItemOut(
                     uid=oi.uid,
                     product_id=oi.product_id,

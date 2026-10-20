@@ -87,9 +87,3 @@ class CartService:
             await session.delete(item)
             await session.commit()
         return await self.get_cart(user_id, session)
-
-    async def clear_cart(self, user_id: uuid.UUID, session: AsyncSession) -> None:
-        cart = await self._get_or_create_cart(user_id, session)
-        for item in cart.items:
-            await session.delete(item)
-        await session.commit()

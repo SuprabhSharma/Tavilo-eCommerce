@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import ShopLayout from "./components/Layout";
 import { Skeleton } from "./components/ui";
@@ -60,6 +60,33 @@ function Loading() {
     </div>
   );
 }
+
+function RequestIndicator() {
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    const handleRequestState = (event) => {
+      setActive(Boolean(event.detail?.active));
+    };
+    window.addEventListener("tavilo:request-state", handleRequestState);
+    return () =>
+      window.removeEventListener("tavilo:request-state", handleRequestState);
+  }, []);
+
+  if (!active) return null;
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 bg-brand-100"
+      role="status"
+      aria-live="polite"
+      aria-label="Processing request"
+    >
+      <div className="h-full w-1/3 animate-[loading-bar_1.2s_ease-in-out_infinite] rounded-r-full bg-brand-600" />
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }) {
   const token = useAuthStore((state) => state.accessToken);
   const isReady = useAuthStore((state) => state.isReady);
@@ -98,6 +125,7 @@ export default function App() {
 
   return (
     <>
+      <RequestIndicator />
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route element={<ShopLayout />}>
@@ -181,8 +209,7 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/verify-email/:token" element={<VerifyEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password/:token" element={<ResetPassword />} />
-          <Route path="/resetpassword/:token" element={<ResetPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
