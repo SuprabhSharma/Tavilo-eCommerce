@@ -11,3 +11,4 @@ dist/
 
 backend/tests/
 .vscode/settings.json
+frontend/.env.development
