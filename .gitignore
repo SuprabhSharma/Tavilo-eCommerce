@@ -10,3 +10,4 @@ dist/
 .DS_Store
 
 backend/tests/
+.vscode/settings.json
