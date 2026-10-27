@@ -50,12 +50,22 @@ class CartService:
             raise ProductNotFound()
         if product.stock < data.quantity:
             raise HTTPException(status_code=400, detail=f"Insufficient stock for: {product.title}")
-        # upsert
+        # Upsert: if the product is already in the cart, accumulate quantity;
+        # Bug 8 fix: existing item was silently ignored -- now quantity is incremented.
         item_result = await session.exec(
             select(CartItem).where(CartItem.cart_id == cart.uid, CartItem.product_id == data.product_id)
         )
         item = item_result.first()
-        if not item:
+        if item:
+            new_qty = item.quantity + data.quantity
+            if product.stock < new_qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for: {product.title} (requested total: {new_qty}, available: {product.stock})",
+                )
+            item.quantity = new_qty
+            session.add(item)
+        else:
             item = CartItem(cart_id=cart.uid, product_id=data.product_id, quantity=data.quantity)
             session.add(item)
         await session.commit()

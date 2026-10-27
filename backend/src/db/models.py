@@ -14,7 +14,7 @@ Model hierarchy:
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -56,10 +56,10 @@ class User(SQLModel, table=True):
     is_verified: bool = Field(default=False)
     password_hash: str = Field(exclude=True)
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     # Relationships
@@ -142,7 +142,7 @@ class RevokedToken(SQLModel, table=True):
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True)
     )
     revoked_at: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False),
     )
 
@@ -171,7 +171,7 @@ class PasswordResetToken(SQLModel, table=True):
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=True),
     )
     created_at: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True),
     )
 
@@ -190,7 +190,7 @@ class AuditLog(SQLModel, table=True):
     target_id: Optional[str] = Field(default=None, max_length=120)
     metadata_json: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True),
     )
 
@@ -221,10 +221,10 @@ class Vendor(SQLModel, table=True):
         sa_column=Column(pg.VARCHAR(20), nullable=False, server_default="pending")
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     user: Optional[User] = Relationship(
@@ -266,7 +266,7 @@ class Category(SQLModel, table=True):
     )
     image_url: Optional[str] = Field(default=None)
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     products: list["Product"] = Relationship(
@@ -319,10 +319,10 @@ class Product(SQLModel, table=True):
         default=None, sa_column=Column(pg.JSONB, nullable=True)
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now, index=True)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     __table_args__ = (
@@ -408,10 +408,10 @@ class ServiceOffering(SQLModel, table=True):
         sa_column=Column(pg.VARCHAR(20), nullable=False, server_default="active")
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now, index=True)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     __table_args__ = (
@@ -457,7 +457,7 @@ class Cart(SQLModel, table=True):
     )
     user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False, unique=True)
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     user: Optional[User] = Relationship(
@@ -513,7 +513,7 @@ class Wishlist(SQLModel, table=True):
     user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False)
     product_id: uuid.UUID = Field(foreign_key="products.uid", nullable=False)
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     __table_args__ = (
@@ -553,7 +553,7 @@ class Address(SQLModel, table=True):
     pincode: str = Field(sa_column=Column(pg.VARCHAR(10), nullable=False))
     is_default: bool = Field(default=False)
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     user: Optional[User] = Relationship(
@@ -601,10 +601,10 @@ class Order(SQLModel, table=True):
         sa_column=Column(pg.VARCHAR(255), nullable=True, index=True),
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now, index=True)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     __table_args__ = (
@@ -643,10 +643,10 @@ class SubOrder(SQLModel, table=True):
         sa_column=Column(pg.VARCHAR(20), nullable=False, server_default="placed")
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     order: Optional[Order] = Relationship(
@@ -737,10 +737,10 @@ class Review(SQLModel, table=True):
         sa_column=Column(pg.BOOLEAN, nullable=False, server_default="false"),
     )
     created_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
     updated_at: datetime = Field(
-        sa_column=Column(pg.TIMESTAMP(timezone=True), default=datetime.now)
+        sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )
 
     __table_args__ = (

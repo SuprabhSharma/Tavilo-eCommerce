@@ -123,7 +123,7 @@ def register_all_errors(app: FastAPI):
     app.add_exception_handler(
         UserAlreadyExists,
         create_exception_handler(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_409_CONFLICT,
             initial_detail={
                 "message": "User with email already exists",
                 "error_code": "user_exists",
@@ -208,7 +208,7 @@ def register_all_errors(app: FastAPI):
     app.add_exception_handler(
         InsufficientPermission,
         create_exception_handler(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_403_FORBIDDEN,
             initial_detail={
                 "message": "You do not have enough permissions to perform this action",
                 "error_code": "insufficient_permissions",
@@ -328,8 +328,16 @@ def register_all_errors(app: FastAPI):
 
 
     @app.exception_handler(SQLAlchemyError)
-    async def database__error(request, exc):
-        print(str(exc))
+    async def database__error(request: Request, exc: SQLAlchemyError) -> JSONResponse:
+        # Bug 9 fix: route the full exception through the structured logging pipeline
+        # (JsonFormatter in production) so schema details never reach HTTP responses.
+        import logging as _logging
+        _logging.getLogger("tavilo.db").error(
+            "Database error on %s %s",
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
         return JSONResponse(
             content={
                 "message": "Oops! Something went wrong",

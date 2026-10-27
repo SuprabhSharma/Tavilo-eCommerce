@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -103,13 +103,38 @@ class OrderService:
         vendors_map: Dict[uuid.UUID, Vendor] = {}
         vendor_groups: Dict[uuid.UUID, List[CartItem]] = {}
 
+        # Bug 4 fix: validate vendor approval BEFORE touching stock.
+        # Pre-fetch all products + vendors in two bulk queries to avoid N+1 round-trips.
+        product_ids = [item.product_id for item in sorted_items]
+        pre_products_res = await session.exec(
+            select(Product).where(Product.uid.in_(product_ids))
+        )
+        pre_products: Dict[uuid.UUID, Product] = {p.uid: p for p in pre_products_res.all()}
+        pre_vendor_ids = {p.vendor_id for p in pre_products.values()}
+        pre_vendors_res = await session.exec(
+            select(Vendor).where(Vendor.uid.in_(pre_vendor_ids))
+        )
+        for v in pre_vendors_res.all():
+            vendors_map[v.uid] = v
+
         for item in sorted_items:
+            pre_product = pre_products.get(item.product_id)
+            if not pre_product or pre_product.status != "active":
+                p_name = pre_product.title if pre_product else str(item.product_id)
+                raise HTTPException(status_code=400, detail=f"Product unavailable: {p_name}")
+            pre_vendor = vendors_map.get(pre_product.vendor_id)
+            if not pre_vendor or pre_vendor.status != "approved":
+                # Vendor not approved -- reject before any stock is decremented.
+                raise HTTPException(status_code=400, detail=f"Product unavailable: {pre_product.title}")
+
+            # Bug 3 fix: extend RETURNING to capture price atomically, eliminating
+            # the TOCTOU window between the UPDATE and a subsequent SELECT.
             res = await session.exec(
                 text("""
                     UPDATE products
                     SET stock = stock - :qty
                     WHERE uid = :pid AND stock >= :qty AND status = 'active'
-                    RETURNING stock;
+                    RETURNING uid, price, title, vendor_id, slug;
                 """).params(qty=item.quantity, pid=item.product_id)
             )
             updated_row = res.first()
@@ -123,17 +148,18 @@ class OrderService:
                     detail=f"Insufficient stock for: {p_check.title} (requested: {item.quantity}, available: {p_check.stock})",
                 )
 
-            p_res = await session.exec(select(Product).where(Product.uid == item.product_id))
+            # Atomically captured price -- immune to concurrent price changes.
+            atomic_price = Decimal(str(updated_row.price))
+
+            # Refresh the ORM object so relationships (images, etc.) are available.
+            p_res = await session.exec(
+                select(Product)
+                .where(Product.uid == item.product_id)
+                .execution_options(populate_existing=True)
+            )
             product = p_res.first()
-            vendor = vendors_map.get(product.vendor_id)
-            if vendor is None:
-                vendor = (await session.exec(
-                    select(Vendor).where(Vendor.uid == product.vendor_id)
-                )).first()
-                if vendor is not None:
-                    vendors_map[vendor.uid] = vendor
-            if not vendor or vendor.status != "approved":
-                raise HTTPException(status_code=400, detail=f"Product unavailable: {product.title}")
+            # Pin price to the value captured inside the UPDATE transaction.
+            product.price = atomic_price
             products_map[product.uid] = product
             vendor_groups.setdefault(product.vendor_id, []).append(item)
 
@@ -312,11 +338,13 @@ class OrderService:
         order.status = "cancelled"
         if order.payment_method == "online_mock":
             order.payment_status = "refunded"
-        order.updated_at = datetime.now()
+        order.updated_at = datetime.now(timezone.utc)
 
-        for sub in order.sub_orders:
+        # Bug 1 fix: iterate current_subs (the DB-locked result set) instead of
+        # order.sub_orders (ORM selectin cache loaded before the FOR UPDATE lock).
+        for sub in current_subs:
             sub.status = "cancelled"
-            sub.updated_at = datetime.now()
+            sub.updated_at = datetime.now(timezone.utc)
             session.add(sub)
             sorted_items = sorted(sub.items, key=lambda it: it.product_id)
             for item in sorted_items:
@@ -428,12 +456,12 @@ class OrderService:
                     p.stock += item.quantity
 
         sub.status = new_status
-        sub.updated_at = datetime.now()
+        sub.updated_at = datetime.now(timezone.utc)
         session.add(sub)
 
-        # Automatically sync the parent Order.status so the customer's top tracking bar moves forward
-        order_result = await session.exec(select(Order).where(Order.uid == sub.order_id))
-        order = order_result.first()
+        # Automatically sync the parent Order.status so the customer's top tracking bar moves forward.
+        # Bug 2 fix: reuse the already-locked `order` object acquired above --
+        # issuing a second unlocked SELECT here creates a race condition.
         parent_status = sub.status
         if order:
             all_subs_result = await session.exec(select(SubOrder).where(SubOrder.order_id == order.uid))
@@ -451,7 +479,7 @@ class OrderService:
             else:
                 order.status = "placed"
 
-            order.updated_at = datetime.now()
+            order.updated_at = datetime.now(timezone.utc)
             session.add(order)
             parent_status = order.status
 
