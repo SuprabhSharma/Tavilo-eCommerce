@@ -88,3 +88,5 @@ services:
         condition: service_healthy
     ports:
       - "80:80"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/tavilo.conf:ro
