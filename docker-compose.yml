@@ -1,54 +1,90 @@
-version: "3.9"
+##############################################################
+# Tavilo — Production Docker Compose
+# Usage: docker compose up -d
+# Secrets: populate .env.server and backend/.env.production
+##############################################################
+
+name: tavilo
+
+# ── Shared network ─────────────────────────────────────────
+networks:
+  tavilo_network:
+    driver: bridge
+    internal: false   # allow outbound (email, etc.)
+
+# ── Named volumes ──────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+  media_uploads:
+    driver: local
 
 services:
+
+  # ──────────────────────────────────────────────────────────
+  # PostgreSQL 16
+  # ──────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: always
+    networks:
+      - tavilo_network
     environment:
-      POSTGRES_USER: marketplace
-      POSTGRES_PASSWORD: marketplace
-      POSTGRES_DB: marketplace
-    ports:
-      - "5432:5432"
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       ${DB_NAME}
+      PGDATA:            /var/lib/postgresql/data/pgdata
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # ── No external port — only accessible inside the bridge network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U marketplace"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
+  # ──────────────────────────────────────────────────────────
+  # FastAPI backend
+  # ──────────────────────────────────────────────────────────
   api:
-    build: ./backend
-    restart: unless-stopped
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: always
+    networks:
+      - tavilo_network
     depends_on:
       db:
         condition: service_healthy
     env_file:
-      - ./backend/.env
+      - ./backend/.env.production
     environment:
-      DATABASE_URL: postgresql+asyncpg://marketplace:marketplace@db:5432/marketplace
-    ports:
-      - "8000:8000"
+      # Override DATABASE_URL with the correct docker-network hostname
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
     volumes:
-      - ./backend:/app
-    command: uvicorn src:app --host 0.0.0.0 --port 8000 --reload --log-level info --access-log
+      # Persist product images across deploys
+      - media_uploads:/app/uploads
+    # ── No external port — nginx proxies all traffic
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+  # ──────────────────────────────────────────────────────────
+  # React frontend (nginx reverse-proxy + static files)
+  # ──────────────────────────────────────────────────────────
   frontend:
-    image: node:22-alpine
-    working_dir: /app
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+    networks:
+      - tavilo_network
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    environment:
-      VITE_API_URL: /api/v1
-      VITE_PROXY_TARGET: http://api:8000
-    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
-
-volumes:
-  pgdata:
-  frontend_node_modules:
+      - "80:80"

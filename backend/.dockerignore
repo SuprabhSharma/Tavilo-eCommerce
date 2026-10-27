@@ -1,0 +1,44 @@
+# Python cache & bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# UV cache
+.uv-cache/
+*.egg-info/
+
+# Environment files (secrets must NOT go in image)
+.env
+.env.*
+
+# Test artefacts
+.pytest_cache/
+tests/
+htmlcov/
+.coverage
+
+# User-uploaded media (mounted as named volume in production)
+uploads/
+
+# Git history
+.git/
+.gitignore
+
+# Node (shouldn't be here but just in case)
+node_modules/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

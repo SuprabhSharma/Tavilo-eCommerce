@@ -1,0 +1,54 @@
+##############################################################
+# Tavilo — Local Development Overrides
+# Applied automatically when you run: docker compose up
+# Do NOT commit secrets. Use backend/.env for local overrides.
+##############################################################
+
+name: tavilo
+
+services:
+
+  # ── Expose Postgres for local DB clients (TablePlus, etc.)
+  db:
+    ports:
+      - "5432:5432"
+
+  # ── Hot-reload FastAPI with local source mounted
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Override env_file for local development
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER:-tavilo_user}:${DB_PASSWORD:-localpassword}@db:5432/${DB_NAME:-tavilo_dev}"
+      APP_ENV: development
+    volumes:
+      # Mount source for hot-reload
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    # Override entrypoint with --reload
+    command: >
+      uvicorn src:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level debug
+
+  # ── Vite dev server instead of nginx
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: ""
+    # Install deps if node_modules is missing, then start dev server
+    command: >
+      sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - api
