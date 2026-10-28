@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-labelledby="t d">
+  <title id="t">Tavilo system architecture</title>
+  <desc id="d">Browser SPA talks HTTPS to Cloudflare and Nginx, which proxy /api to a FastAPI service layer backed by PostgreSQL, a token-gated media volume and SMTP.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#07101f"/>
+      <stop offset="1" stop-color="#0d2140"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#5eead4" fill-opacity="0.12"/>
+    </pattern>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5eead4"/>
+    </marker>
+    <marker id="arrA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#f5a623"/>
+    </marker>
+    <path id="f1" d="M262 330 H322"/>
+    <path id="f2" d="M552 330 H612"/>
+    <path id="f3a" d="M912 190 H972"/>
+    <path id="f3b" d="M912 330 H972"/>
+    <path id="f3c" d="M912 470 H972"/>
+  </defs>
+
+  <rect width="1200" height="660" fill="url(#bg)"/>
+  <rect width="1200" height="660" fill="url(#dots)"/>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+    <text x="600" y="44" text-anchor="middle" font-size="22" font-weight="800" letter-spacing="6" fill="#e6f1ff">TAVILO · SYSTEM ARCHITECTURE</text>
+    <text x="600" y="68" text-anchor="middle" font-size="13" letter-spacing="3" fill="#8aa4c8">REQUEST PATH — BROWSER → EDGE → API → DATA</text>
+
+    <!-- column captions -->
+    <g font-size="12" font-weight="700" letter-spacing="3" fill="#5eead4" text-anchor="middle">
+      <text x="152" y="108">01 · CLIENT</text>
+      <text x="437" y="108">02 · EDGE</text>
+      <text x="762" y="108">03 · APPLICATION</text>
+      <text x="1082" y="108">04 · DATA &amp; SERVICES</text>
+    </g>
+
+    <!-- CLIENT -->
+    <rect x="40" y="122" width="224" height="416" rx="18" fill="#0b1d38" stroke="#0bb5b0" stroke-opacity="0.7" stroke-width="1.5"/>
+    <text x="152" y="152" text-anchor="middle" font-size="16" font-weight="700" fill="#e6f1ff">React 18 SPA</text>
+    <text x="152" y="172" text-anchor="middle" font-size="11" fill="#8aa4c8">Vite 6 · Tailwind CSS 3</text>
+    <g font-size="12.5" fill="#e6f1ff" text-anchor="middle">
+      <rect x="56" y="192" width="192" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="152" y="214" font-weight="600">React Router 6</text><text x="152" y="231" font-size="11" fill="#8aa4c8">lazy-loaded, role-guarded routes</text>
+      <rect x="56" y="256" width="192" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="152" y="278" font-weight="600">TanStack Query 5</text><text x="152" y="295" font-size="11" fill="#8aa4c8">server-state cache</text>
+      <rect x="56" y="320" width="192" height="52" rx="10" fill="#f5a623" fill-opacity="0.12" stroke="#f5a623" stroke-opacity="0.6"/>
+      <text x="152" y="342" font-weight="600">Zustand store</text><text x="152" y="359" font-size="11" fill="#ffd38a">access token in memory only</text>
+      <rect x="56" y="384" width="192" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="152" y="406" font-weight="600">Axios client</text><text x="152" y="423" font-size="11" fill="#8aa4c8">single-flight 401 → refresh</text>
+      <rect x="56" y="448" width="192" height="72" rx="10" fill="none" stroke="#8aa4c8" stroke-opacity="0.4" stroke-dasharray="4 4"/>
+      <text x="152" y="472" font-weight="600">Three experiences</text>
+      <text x="152" y="490" font-size="11" fill="#8aa4c8">Storefront · Vendor portal</text>
+      <text x="152" y="506" font-size="11" fill="#8aa4c8">Admin portal</text>
+    </g>
+
+    <!-- EDGE -->
+    <rect x="322" y="122" width="230" height="416" rx="18" fill="#0b1d38" stroke="#0bb5b0" stroke-opacity="0.7" stroke-width="1.5"/>
+    <text x="437" y="152" text-anchor="middle" font-size="16" font-weight="700" fill="#e6f1ff">Cloudflare → Nginx</text>
+    <text x="437" y="172" text-anchor="middle" font-size="11" fill="#8aa4c8">nginx 1.27-alpine container</text>
+    <g font-size="12.5" fill="#e6f1ff" text-anchor="middle">
+      <rect x="338" y="192" width="198" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="437" y="214" font-weight="600">TLS · Full (strict)</text><text x="437" y="231" font-size="11" fill="#8aa4c8">origin cert · TLS 1.2 / 1.3</text>
+      <rect x="338" y="256" width="198" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="437" y="278" font-weight="600">Security headers</text><text x="437" y="295" font-size="11" fill="#8aa4c8">HSTS · nosniff · frame deny</text>
+      <rect x="338" y="320" width="198" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="437" y="342" font-weight="600">Static + SPA fallback</text><text x="437" y="359" font-size="11" fill="#8aa4c8">gzip · 1-year immutable assets</text>
+      <rect x="338" y="384" width="198" height="52" rx="10" fill="#f5a623" fill-opacity="0.12" stroke="#f5a623" stroke-opacity="0.6"/>
+      <text x="437" y="406" font-weight="600">Reverse proxy</text><text x="437" y="423" font-size="11" fill="#ffd38a">/api · /media · /health · /ready</text>
+      <rect x="338" y="448" width="198" height="72" rx="10" fill="none" stroke="#8aa4c8" stroke-opacity="0.4" stroke-dasharray="4 4"/>
+      <text x="437" y="472" font-weight="600">Only public surface</text>
+      <text x="437" y="490" font-size="11" fill="#8aa4c8">API and DB have no</text>
+      <text x="437" y="506" font-size="11" fill="#8aa4c8">published ports in prod</text>
+    </g>
+
+    <!-- APPLICATION -->
+    <rect x="612" y="122" width="300" height="416" rx="18" fill="#0b1d38" stroke="#f5a623" stroke-opacity="0.8" stroke-width="1.5"/>
+    <text x="762" y="152" text-anchor="middle" font-size="16" font-weight="700" fill="#e6f1ff">FastAPI · /api/v1</text>
+    <text x="762" y="172" text-anchor="middle" font-size="11" fill="#8aa4c8">Python 3.12 · Uvicorn (2 workers) · async</text>
+    <g font-size="12.5" fill="#e6f1ff" text-anchor="middle">
+      <rect x="628" y="192" width="268" height="52" rx="10" fill="#f5a623" fill-opacity="0.12" stroke="#f5a623" stroke-opacity="0.6"/>
+      <text x="762" y="214" font-weight="600">Middleware</text><text x="762" y="231" font-size="11" fill="#ffd38a">CORS allow-list · TrustedHost · JSON access log</text>
+      <rect x="628" y="256" width="268" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="762" y="278" font-weight="600">Dependencies</text><text x="762" y="295" font-size="11" fill="#8aa4c8">JWT bearer · verified user · RoleChecker</text>
+      <rect x="628" y="320" width="268" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="762" y="342" font-weight="600">Routers · 11 feature modules</text><text x="762" y="359" font-size="11" fill="#8aa4c8">auth · products · cart · orders · vendors …</text>
+      <rect x="628" y="384" width="268" height="52" rx="10" fill="#0bb5b0" fill-opacity="0.12" stroke="#0bb5b0" stroke-opacity="0.5"/>
+      <text x="762" y="406" font-weight="600">Service layer</text><text x="762" y="423" font-size="11" fill="#8aa4c8">business rules · transactions · row locks</text>
+      <rect x="628" y="448" width="268" height="72" rx="10" fill="none" stroke="#8aa4c8" stroke-opacity="0.4" stroke-dasharray="4 4"/>
+      <text x="762" y="472" font-weight="600">Production guard-rails</text>
+      <text x="762" y="490" font-size="11" fill="#8aa4c8">refuses to boot on weak secrets,</text>
+      <text x="762" y="506" font-size="11" fill="#8aa4c8">insecure cookies or wildcard CORS</text>
+    </g>
+
+    <!-- DATA -->
+    <g text-anchor="middle">
+      <rect x="972" y="122" width="220" height="136" rx="18" fill="#0b1d38" stroke="#0bb5b0" stroke-opacity="0.7" stroke-width="1.5"/>
+      <text x="1082" y="156" font-size="15" font-weight="700" fill="#e6f1ff">PostgreSQL 16</text>
+      <text x="1082" y="178" font-size="11" fill="#8aa4c8">SQLModel · asyncpg</text>
+      <text x="1082" y="196" font-size="11" fill="#8aa4c8">19 tables · Alembic owns schema</text>
+      <text x="1082" y="214" font-size="11" fill="#ffd38a">CHECK · UNIQUE · FK invariants</text>
+      <text x="1082" y="238" font-size="11" fill="#5eead4">named volume: pgdata</text>
+
+      <rect x="972" y="272" width="220" height="116" rx="18" fill="#0b1d38" stroke="#0bb5b0" stroke-opacity="0.7" stroke-width="1.5"/>
+      <text x="1082" y="306" font-size="15" font-weight="700" fill="#e6f1ff">Media store</text>
+      <text x="1082" y="328" font-size="11" fill="#8aa4c8">Pillow → WebP ≤ 1600 px</text>
+      <text x="1082" y="346" font-size="11" fill="#ffd38a">published = public cache</text>
+      <text x="1082" y="364" font-size="11" fill="#ffd38a">draft = signed token only</text>
+
+      <rect x="972" y="402" width="220" height="136" rx="18" fill="#0b1d38" stroke="#0bb5b0" stroke-opacity="0.7" stroke-width="1.5"/>
+      <text x="1082" y="436" font-size="15" font-weight="700" fill="#e6f1ff">SMTP</text>
+      <text x="1082" y="458" font-size="11" fill="#8aa4c8">fastapi-mail · background task</text>
+      <text x="1082" y="476" font-size="11" fill="#8aa4c8">email verification</text>
+      <text x="1082" y="494" font-size="11" fill="#8aa4c8">password reset</text>
+    </g>
+
+    <!-- flow lines -->
+    <g fill="none" stroke-width="2" stroke-linecap="round">
+      <use href="#f1" stroke="#5eead4" stroke-dasharray="6 6" marker-end="url(#arr)"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="1s" repeatCount="indefinite"/></use>
+      <use href="#f2" stroke="#5eead4" stroke-dasharray="6 6" marker-end="url(#arr)"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="1s" repeatCount="indefinite"/></use>
+      <use href="#f3a" stroke="#f5a623" stroke-dasharray="6 6" marker-end="url(#arrA)"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="1s" repeatCount="indefinite"/></use>
+      <use href="#f3b" stroke="#f5a623" stroke-dasharray="6 6" marker-end="url(#arrA)"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="1s" repeatCount="indefinite"/></use>
+      <use href="#f3c" stroke="#f5a623" stroke-dasharray="6 6" marker-end="url(#arrA)"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="1s" repeatCount="indefinite"/></use>
+    </g>
+    <g filter="url(#glow)">
+      <circle r="4.5" fill="#5eead4"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#f1"/></animateMotion></circle>
+      <circle r="4.5" fill="#5eead4"><animateMotion dur="1.6s" begin="0.5s" repeatCount="indefinite"><mpath href="#f2"/></animateMotion></circle>
+      <circle r="4.5" fill="#f5a623"><animateMotion dur="1.6s" begin="1s" repeatCount="indefinite"><mpath href="#f3a"/></animateMotion></circle>
+      <circle r="4.5" fill="#f5a623"><animateMotion dur="1.6s" begin="0.2s" repeatCount="indefinite"><mpath href="#f3b"/></animateMotion></circle>
+      <circle r="4.5" fill="#f5a623"><animateMotion dur="1.6s" begin="0.7s" repeatCount="indefinite"><mpath href="#f3c"/></animateMotion></circle>
+    </g>
+
+    <!-- flow labels -->
+    <g font-size="10.5" font-weight="700" letter-spacing="1" text-anchor="middle" fill="#8aa4c8">
+      <text x="292" y="316">HTTPS</text>
+      <text x="582" y="316">HTTP</text>
+      <text x="942" y="176">asyncpg</text>
+      <text x="942" y="316">files</text>
+      <text x="942" y="456">SMTP</text>
+    </g>
+
+    <!-- legend -->
+    <g font-size="12" fill="#8aa4c8">
+      <rect x="40" y="582" width="14" height="14" rx="3" fill="#0bb5b0" fill-opacity="0.3" stroke="#0bb5b0"/>
+      <text x="62" y="594">Stateless tier</text>
+      <rect x="170" y="582" width="14" height="14" rx="3" fill="#f5a623" fill-opacity="0.3" stroke="#f5a623"/>
+      <text x="192" y="594">Trust boundary / enforcement point</text>
+      <text x="1160" y="594" text-anchor="end">Dev: Vite proxy replaces Nginx · Prod: only Nginx publishes ports</text>
+    </g>
+  </g>
+</svg>
