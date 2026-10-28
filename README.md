@@ -1,12 +1,7 @@
-<div align="center">
-
-<img src="docs/assets/banner.svg" alt="Tavilo — multi-vendor commerce engine. One cart. Many stores. Zero overselling." width="100%"/>
-
-<br/>
-
-<img src="frontend/public/tavilo-logo.webp" alt="Tavilo logo" height="64"/>
-
 ### A production-grade multi-vendor marketplace — built to never oversell, never double-charge, never leak a session.
+<div align="center">
+<br/>
+<img src="frontend/public/tavilo-logo.webp" alt="Tavilo logo" height="64"/>
 
 <br/>
 
