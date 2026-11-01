@@ -62,6 +62,12 @@ log "Running database migrations before starting the new API..."
 # the Nginx container. Release that address before Compose creates the
 # short-lived migration container for the same service.
 docker compose -f "${COMPOSE_FILE}" stop api
+# `stop` leaves the fixed-IP API container attached to the network. Remove
+# stopped API/one-off containers before `compose run` requests that IP.
+docker ps -aq \
+  --filter "label=com.docker.compose.project=tavilo" \
+  --filter "label=com.docker.compose.service=api" \
+  | xargs -r docker rm -f
 docker compose -f "${COMPOSE_FILE}" run --rm --no-deps api alembic upgrade head
 
 log "Starting the new API and frontend..."
