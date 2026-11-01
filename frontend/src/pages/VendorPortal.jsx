@@ -85,9 +85,9 @@ export default function VendorPortal() {
   });
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+    <div className="mx-auto min-w-0 max-w-7xl overflow-x-clip px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-7 sm:gap-4">
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-600 sm:text-xs">
             Seller centre
           </p>
@@ -100,8 +100,8 @@ export default function VendorPortal() {
           <ExternalLink size={16} /> Browse Tavilo
         </Link>
       </div>
-      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-7">
-        <aside className="h-fit rounded-card border border-line bg-white p-2.5 sm:p-3 lg:sticky lg:top-5">
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-7">
+        <aside className="min-w-0 overflow-hidden rounded-card border border-line bg-white p-2.5 sm:p-3 lg:sticky lg:top-5">
           <div className="mb-2 rounded-lg bg-brand-50 p-3 sm:mb-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
               Seller centre
@@ -110,7 +110,7 @@ export default function VendorPortal() {
               {profile.data?.store_name || "Set up your store"}
             </p>
           </div>
-          <nav className="flex gap-1 overflow-x-auto pb-0.5 lg:block lg:space-y-1 lg:overflow-visible">
+          <nav className="flex max-w-full gap-1 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] lg:block lg:space-y-1 lg:overflow-visible [&::-webkit-scrollbar]:hidden">
             {navItems.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
@@ -130,7 +130,7 @@ export default function VendorPortal() {
             ))}
           </nav>
         </aside>
-        <main>
+        <main className="min-w-0">
           <Routes>
             <Route index element={<VendorOverview profile={profile} />} />
             <Route
@@ -173,7 +173,7 @@ function ApplicationPrompt() {
   return (
     <div className="rounded-card border border-line bg-white p-7 sm:p-10">
       <div className="grid gap-8 md:grid-cols-[1fr_260px] md:items-center">
-        <div>
+        <div className="min-w-0">
           <Badge tone="warning">Seller centre</Badge>
           <h2 className="mt-4 text-2xl font-bold">
             Turn your products into a business
@@ -526,8 +526,8 @@ function ApprovedOverview({ vendor }) {
                             {subOrder.items?.map((i) => i.title_snapshot).join(", ")}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-ink">
+                        <div className="min-w-0 text-right">
+                          <p className="break-words font-bold text-ink tabular-nums [overflow-wrap:anywhere]">
                             {formatCurrency(subOrder.subtotal)}
                           </p>
                           <Link
@@ -1731,8 +1731,8 @@ function VendorOrders({ profile }) {
       </div>
 
       {/* Filter Tabs & Search */}
-      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
+      <div className="mt-6 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 max-w-md flex-1">
           <Search
             size={18}
             className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
@@ -1746,7 +1746,7 @@ function VendorOrders({ profile }) {
           />
         </div>
 
-        <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm">
+        <div className="flex max-w-full flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm">
           {[
             { id: "all", label: `All (${rawOrders.length})` },
             {
@@ -1817,8 +1817,8 @@ function VendorOrders({ profile }) {
                 className="overflow-hidden rounded-card border border-line bg-white shadow-sm transition hover:border-slate-300"
               >
                 {/* Header Strip */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-slate-50/70 px-5 py-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-slate-50/70 px-4 py-3 text-sm sm:px-5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
                     <div>
                       <span className="text-xs font-semibold uppercase tracking-wider text-muted">
                         SubOrder ID
@@ -1905,7 +1905,7 @@ function VendorOrders({ profile }) {
                 </div>
 
                 {/* Body Content */}
-                <div className="p-5">
+                <div className="min-w-0 p-4 sm:p-5">
                   <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
                     {/* Items Section */}
                     <div>
@@ -1916,7 +1916,7 @@ function VendorOrders({ profile }) {
                         {(subOrder.items || []).map((item) => (
                           <div
                             key={item.uid}
-                            className="flex items-center justify-between gap-3 p-3 text-sm"
+                            className="flex min-w-0 items-center justify-between gap-3 p-3 text-sm"
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
                               <img
@@ -1934,7 +1934,7 @@ function VendorOrders({ profile }) {
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right font-bold text-ink">
+                            <div className="min-w-0 max-w-[42%] break-words text-right font-bold text-ink tabular-nums [overflow-wrap:anywhere]">
                               {formatCurrency(
                                 item.line_total ||
                                   Number(item.price_snapshot) * item.quantity
@@ -1946,7 +1946,7 @@ function VendorOrders({ profile }) {
 
                       <div className="mt-3 flex items-center justify-between text-sm">
                         <span className="font-medium text-muted">Store Subtotal:</span>
-                        <span className="text-lg font-bold text-ink">
+                        <span className="max-w-[48%] break-words text-right text-lg font-bold text-ink tabular-nums [overflow-wrap:anywhere]">
                           {formatCurrency(subOrder.subtotal)}
                         </span>
                       </div>
@@ -1985,7 +1985,7 @@ function VendorOrders({ profile }) {
                   </div>
 
                   {/* Actions Bar */}
-                  <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+                  <div className="mt-5 flex flex-wrap items-start justify-between gap-3 border-t border-line pt-4">
                     <div className="text-xs text-muted">
                       {isPlaced && "Customer is awaiting order confirmation."}
                       {isConfirmed && "Order is confirmed. Prepare packaging and mark shipped once dispatched."}

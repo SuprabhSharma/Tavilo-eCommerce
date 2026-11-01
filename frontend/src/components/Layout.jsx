@@ -314,7 +314,7 @@ export default function ShopLayout() {
           </aside>
         </div>
       )}
-      <main>
+      <main className="min-w-0 overflow-x-clip">
         <Outlet />
       </main>
       <footer className="border-t border-line bg-white">

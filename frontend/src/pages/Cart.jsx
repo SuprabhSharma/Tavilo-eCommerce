@@ -116,7 +116,7 @@ export default function Cart() {
                     </button>
                   </div>
                 </div>
-                <p className="hidden self-center text-sm font-bold sm:block">
+                <p className="hidden max-w-full self-center break-words text-right text-sm font-bold tabular-nums [overflow-wrap:anywhere] sm:block">
                   {formatCurrency(item.line_total)}
                 </p>
               </div>
@@ -126,7 +126,7 @@ export default function Cart() {
             <h2 className="font-bold">Price details</h2>
             <div className="mt-5 flex justify-between text-sm text-muted">
               <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span className="max-w-[55%] break-words text-right tabular-nums [overflow-wrap:anywhere]">{formatCurrency(subtotal)}</span>
             </div>
             <div className="mt-3 flex justify-between text-sm text-muted">
               <span>Delivery</span>
@@ -135,7 +135,7 @@ export default function Cart() {
             <div className="my-5 h-px bg-line" />
             <div className="flex justify-between font-bold">
               <span>Total</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span className="max-w-[55%] break-words text-right tabular-nums [overflow-wrap:anywhere]">{formatCurrency(subtotal)}</span>
             </div>
             <Button
               className="mt-5 w-full"

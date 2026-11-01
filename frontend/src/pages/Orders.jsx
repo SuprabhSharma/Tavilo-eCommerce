@@ -256,7 +256,7 @@ export function Orders() {
                           {storeCount > 1 ? ` from ${storeCount} stores` : ""}
                         </span>
                       </div>
-                      <p className="text-base font-bold text-ink">
+                      <p className="max-w-full break-words text-right text-base font-bold text-ink tabular-nums [overflow-wrap:anywhere]">
                         {formatCurrency(order.total)}
                       </p>
                     </div>
@@ -606,8 +606,8 @@ export function OrderDetail() {
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <p className="font-bold text-ink">
+                  <div className="min-w-0 text-right">
+                    <p className="break-words font-bold text-ink tabular-nums [overflow-wrap:anywhere]">
                       {formatCurrency(
                         item.line_total ||
                           Number(item.price_snapshot) * item.quantity,

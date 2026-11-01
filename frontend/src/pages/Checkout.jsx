@@ -287,12 +287,12 @@ export default function Checkout() {
           <h2 className="font-bold">Order summary</h2>
           <div className="mt-5 flex justify-between text-sm text-muted">
             <span>{cart.data?.items?.length || 0} items</span>
-            <span>{formatCurrency(total)}</span>
+            <span className="max-w-[55%] break-words text-right tabular-nums [overflow-wrap:anywhere]">{formatCurrency(total)}</span>
           </div>
           <div className="my-5 h-px bg-line" />
           <div className="flex justify-between font-bold">
             <span>Total</span>
-            <span>{formatCurrency(total)}</span>
+            <span className="max-w-[55%] break-words text-right tabular-nums [overflow-wrap:anywhere]">{formatCurrency(total)}</span>
           </div>
           {error && (
             <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
