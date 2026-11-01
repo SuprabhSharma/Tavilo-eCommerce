@@ -6,10 +6,11 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.db.models import Product, ProductImage, Vendor
+from src.db.models import Category, Product, ProductImage, Vendor
 
 from .image_storage import (
     MAX_PRODUCT_IMAGES,
@@ -162,14 +163,32 @@ class ProductService:
         )
 
     async def create(self, vendor_id: uuid.UUID, data: ProductCreate, session: AsyncSession) -> Product:
+        if data.category_id is not None:
+            category_result = await session.exec(
+                select(Category).where(Category.uid == data.category_id)
+            )
+            if category_result.first() is None:
+                raise HTTPException(status_code=422, detail="Selected category does not exist.")
+
         payload = data.model_dump(exclude={"image_urls"})
         payload["vendor_id"] = vendor_id
         payload["status"] = "active"
         product = Product(**payload)
         session.add(product)
-        await session.flush()  # get uid before images
-        await self._attach_images(product, data.image_urls, vendor_id, session)
-        await session.commit()
+        try:
+            await session.flush()  # get uid before images
+            await self._attach_images(product, data.image_urls, vendor_id, session)
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            constraint = str(getattr(exc.orig, "diag", None) or exc.orig).lower()
+            if "sku" in constraint:
+                detail = "A product with this SKU already exists."
+            elif "slug" in constraint:
+                detail = "A product with this URL slug already exists."
+            else:
+                detail = "Product could not be saved because it conflicts with existing data."
+            raise HTTPException(status_code=409, detail=detail) from exc
         await session.refresh(product)
         return product
 

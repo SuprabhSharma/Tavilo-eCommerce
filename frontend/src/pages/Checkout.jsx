@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,9 @@ import { Button, EmptyState, Input, Select } from "../components/ui";
 import { formatCurrency } from "../lib/formatters";
 import { getErrorMessage } from "../lib/errors";
 import { useAuthStore } from "../store/authStore";
+
+const PHONE_REGEX = /^[6-9]\d{9}$/;
+const PINCODE_REGEX = /^\d{6}$/;
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -19,18 +22,36 @@ export default function Checkout() {
     queryFn: getAddresses,
   });
   const cart = useQuery({ queryKey: ["cart"], queryFn: getCart });
-  const addForm = useForm();
+  const addForm = useForm({ defaultValues: { payment_method: "cod" } });
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = addForm;
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
   const addressMutation = useMutation({
     mutationFn: addAddress,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["addresses"] });
+    onSuccess: (data) => {
+      queryClient.setQueryData(["addresses"], (current = []) => {
+        const withoutDuplicate = current.filter(
+          (address) => address.uid !== data.uid
+        );
+        return data.is_default
+          ? [
+              data,
+              ...withoutDuplicate.map((address) => ({
+                ...address,
+                is_default: false,
+              })),
+            ]
+          : [...withoutDuplicate, data];
+      });
+      addForm.reset({ payment_method: "cod", address_id: data.uid });
+      setSelectedAddressId(data.uid);
+      setValue("address_id", data.uid, { shouldValidate: true });
       setShowAddress(false);
-      addForm.reset();
+      queryClient.invalidateQueries({ queryKey: ["addresses"] });
     },
   });
   const order = useMutation({
@@ -45,6 +66,28 @@ export default function Checkout() {
     },
     onError: (e) => setError(getErrorMessage(e)),
   });
+  const list = useMemo(() => addresses.data ?? [], [addresses.data]);
+  useEffect(() => {
+    if (!list.length) {
+      setSelectedAddressId(null);
+      if (addresses.isSuccess) {
+        setShowAddress(true);
+      }
+      return;
+    }
+
+    const selectedStillExists = list.some(
+      (address) => address.uid === selectedAddressId
+    );
+    const nextAddress =
+      list.find((address) => address.uid === selectedAddressId) ||
+      list.find((address) => address.is_default) ||
+      list[0];
+    if (!selectedStillExists || !selectedAddressId) {
+      setSelectedAddressId(nextAddress.uid);
+      setValue("address_id", nextAddress.uid, { shouldValidate: true });
+    }
+  }, [addresses.isSuccess, list, selectedAddressId, setValue]);
   if (!useAuthStore.getState().accessToken)
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
@@ -58,7 +101,6 @@ export default function Checkout() {
         />
       </div>
     );
-  const list = addresses.data || [];
   const total = cart.data?.subtotal || 0;
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -70,12 +112,38 @@ export default function Checkout() {
             <div className="flex items-center justify-between">
               <h2 className="font-bold">1. Delivery address</h2>
               <button
+                type="button"
                 onClick={() => setShowAddress((v) => !v)}
                 className="text-sm font-semibold text-brand-600"
               >
                 {showAddress ? "Cancel" : "+ Add new"}
               </button>
             </div>
+            {!list.length && !addresses.isLoading && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4"
+              >
+                <p className="font-semibold text-amber-900">
+                  Add a delivery address to continue
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  We need your address before we can place your order. It will
+                  be saved securely for your future checkouts.
+                </p>
+                {!showAddress && (
+                  <Button
+                    type="button"
+                    variant="soft"
+                    className="mt-3"
+                    onClick={() => setShowAddress(true)}
+                  >
+                    Add delivery address
+                  </Button>
+                )}
+              </div>
+            )}
             {showAddress && (
               <form
                 onSubmit={handleSubmit((data) => addressMutation.mutate(data))}
@@ -89,7 +157,14 @@ export default function Checkout() {
                 <Input
                   label="Phone"
                   error={errors.phone?.message}
-                  {...register("phone", { required: "Required" })}
+                  inputMode="numeric"
+                  {...register("phone", {
+                    required: "Required",
+                    pattern: {
+                      value: PHONE_REGEX,
+                      message: "Enter a valid 10-digit phone number",
+                    },
+                  })}
                 />
                 <Input
                   label="Address line 1"
@@ -111,7 +186,14 @@ export default function Checkout() {
                 <Input
                   label="Pincode"
                   error={errors.pincode?.message}
-                  {...register("pincode", { required: "Required" })}
+                  inputMode="numeric"
+                  {...register("pincode", {
+                    required: "Required",
+                    pattern: {
+                      value: PINCODE_REGEX,
+                      message: "Enter a valid 6-digit pincode",
+                    },
+                  })}
                 />
                 <Button
                   loading={addressMutation.isPending}
@@ -119,6 +201,14 @@ export default function Checkout() {
                 >
                   Save address
                 </Button>
+                {addressMutation.isError && (
+                  <p
+                    role="alert"
+                    className="sm:col-span-2 text-sm font-medium text-red-600"
+                  >
+                    {getErrorMessage(addressMutation.error)}
+                  </p>
+                )}
               </form>
             )}
             {!showAddress && (
@@ -131,8 +221,14 @@ export default function Checkout() {
                     <input
                       type="radio"
                       value={address.uid}
-                      defaultChecked={address.is_default || list.length === 1}
                       {...register("address_id", { required: true })}
+                      checked={selectedAddressId === address.uid}
+                      onChange={() => {
+                        setSelectedAddressId(address.uid);
+                        setValue("address_id", address.uid, {
+                          shouldValidate: true,
+                        });
+                      }}
                     />
                     <span className="text-sm">
                       <b>{address.name}</b>
@@ -203,10 +299,16 @@ export default function Checkout() {
               {error}
             </p>
           )}
+          {!list.length && (
+            <p className="mt-4 text-center text-xs text-muted">
+              Place order becomes available after you add a delivery address.
+            </p>
+          )}
           <Button
             className="mt-5 w-full"
             loading={order.isPending}
             disabled={!list.length}
+            title={!list.length ? "Add a delivery address first" : undefined}
             onClick={handleSubmit((data) => order.mutate(data))}
           >
             Place order

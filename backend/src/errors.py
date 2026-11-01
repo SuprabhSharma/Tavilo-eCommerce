@@ -91,6 +91,11 @@ class OrderNotFound(MarketplaceException):
 
 
 
+class AddressNotFound(MarketplaceException):
+    """Address Not found"""
+
+
+
 class UserNotFound(MarketplaceException):
     """User Not found"""
 
@@ -105,7 +110,20 @@ class EmailDeliveryUnavailable(MarketplaceException):
     """The configured email provider could not accept a message right now."""
 
 
+class TooManyRequests(MarketplaceException):
+    """Caller has exceeded the allowed request rate for this endpoint."""
 
+    def __init__(self, retry_after: int = 60) -> None:
+        self.retry_after = retry_after
+        super().__init__()
+
+
+class RateLimitUnavailable(MarketplaceException):
+    """Rate-limit storage is unavailable; authentication must fail closed."""
+
+
+class AddressLimitReached(MarketplaceException):
+    """A user has reached the maximum number of saved addresses."""
 
 
 def create_exception_handler(
@@ -293,6 +311,17 @@ def register_all_errors(app: FastAPI):
     )
 
     app.add_exception_handler(
+        AddressNotFound,
+        create_exception_handler(
+            status_code=status.HTTP_404_NOT_FOUND,
+            initial_detail={
+                "message": "Address not found",
+                "error_code": "address_not_found",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
         AccountNotVerified,
         create_exception_handler(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -314,6 +343,43 @@ def register_all_errors(app: FastAPI):
             },
         ),
     )
+
+    app.add_exception_handler(
+        RateLimitUnavailable,
+        create_exception_handler(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            initial_detail={
+                "message": "Authentication is temporarily unavailable. Please try again shortly.",
+                "error_code": "rate_limit_unavailable",
+            },
+        ),
+    )
+
+    app.add_exception_handler(
+        AddressLimitReached,
+        create_exception_handler(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            initial_detail={
+                "message": "You have reached the maximum number of saved addresses.",
+                "error_code": "address_limit_reached",
+            },
+        ),
+    )
+
+    @app.exception_handler(TooManyRequests)
+    async def too_many_requests_handler(request: Request, exc: TooManyRequests) -> JSONResponse:
+        headers = {"Retry-After": str(exc.retry_after)}
+        return JSONResponse(
+            content={
+                "message": (
+                    f"Too many attempts. Please wait {exc.retry_after} seconds before trying again."
+                ),
+                "error_code": "too_many_requests",
+                "retry_after": exc.retry_after,
+            },
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers=headers,
+        )
 
     @app.exception_handler(500)
     async def internal_server_error(request, exc):

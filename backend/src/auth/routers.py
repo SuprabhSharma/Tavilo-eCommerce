@@ -18,9 +18,18 @@ from src.errors import (
     InvalidCredentials,
     InvalidToken,
     InvalidVerificationToken,
+    TooManyRequests,
     UserAlreadyExists,
     UserNotFound,
 )
+from .rate_limit import (
+    check_login_rate,
+    check_reset_rate,
+    check_signup_rate,
+    check_verification_rate,
+    clear_login_attempts,
+)
+from .client_ip import get_client_ip
 from src.mail import (
     EmailDeliveryError,
     create_message,
@@ -129,11 +138,18 @@ async def send_email(emails: EmailModel):
 async def create_user_account(
     user_data: UserCreateModel,
     bg_tasks: BackgroundTasks,
+    request: Request,
     session: AsyncSession = session_dependency,
 ):
     """Create user account using email, username, first_name, last_name."""
 
     email = normalize_email(user_data.email)
+    client_ip = get_client_ip(request)
+    for identifier in (f"ip:{client_ip}", f"email:{email}"):
+        allowed, retry_after = await check_signup_rate(identifier)
+        if not allowed:
+            raise TooManyRequests(retry_after=retry_after)
+
     user_data = user_data.model_copy(update={"email": email})
 
     existing_user = await user_service.get_user_by_email(email, session)
@@ -281,6 +297,7 @@ async def verify_user_account(
 async def resend_verification(
     email_data: PasswordResetRequestModel,
     bg_tasks: BackgroundTasks,
+    request: Request,
     session: AsyncSession = session_dependency,
 ):
     """Resend a pending verification email without revealing account state."""
@@ -291,6 +308,14 @@ async def resend_verification(
         status_code=status.HTTP_200_OK,
     )
     email = normalize_email(email_data.email)
+    client_ip = get_client_ip(request)
+    allowed_ip, retry_after_ip = await check_verification_rate(f"ip:{client_ip}")
+    if not allowed_ip:
+        raise TooManyRequests(retry_after=retry_after_ip)
+    allowed_email, _ = await check_verification_rate(f"email:{email}")
+    if not allowed_email:
+        return generic_response
+
     result = await session.exec(
         select(PendingRegistration).where(PendingRegistration.email == email)
     )
@@ -335,10 +360,19 @@ async def resend_verification(
 
 @auth_router.post("/login")
 async def login_users(
-    login_data: UserLoginModel, session: AsyncSession = session_dependency
+    login_data: UserLoginModel,
+    request: Request,
+    session: AsyncSession = session_dependency,
 ):
     email = normalize_email(login_data.email)
     password = login_data.password
+    client_ip = get_client_ip(request)
+
+    # Check rate limit by both email and IP (bot hammering different emails from one IP)
+    for identifier in (f"login:email:{email}", f"login:ip:{client_ip}"):
+        allowed, retry_after = await check_login_rate(identifier)
+        if not allowed:
+            raise TooManyRequests(retry_after=retry_after)
 
     user = await user_service.get_user_by_email(email, session)
 
@@ -348,6 +382,10 @@ async def login_users(
         if password_valid:
             if not user.is_verified:
                 raise AccountNotVerified()
+
+            # Successful login — reset failure counters for this email+IP
+            await clear_login_attempts(f"login:email:{email}")
+            await clear_login_attempts(f"login:ip:{client_ip}")
 
             if user.role == "admin":
                 await record_audit(
@@ -391,6 +429,8 @@ async def login_users(
             )
             set_refresh_cookie(response, refresh_token)
             return response
+
+
 
     raise InvalidCredentials()
 
@@ -500,6 +540,7 @@ async def revoke_token(
 async def password_reset_request(
     email_data: PasswordResetRequestModel,
     bg_tasks: BackgroundTasks,
+    request: Request,
     session: AsyncSession = session_dependency,
 ):
     email = normalize_email(email_data.email)
@@ -511,6 +552,17 @@ async def password_reset_request(
         },
         status_code=status.HTTP_200_OK,
     )
+
+    # Rate limit by IP to stop mass enumeration, and by email to stop targeted spam.
+    client_ip = get_client_ip(request)
+    allowed_ip, retry_after_ip = await check_reset_rate(f"ip:{client_ip}")
+    if not allowed_ip:
+        raise TooManyRequests(retry_after=retry_after_ip)
+
+    allowed_email, retry_after_email = await check_reset_rate(f"email:{email}")
+    if not allowed_email:
+        # Return generic response so we don't leak email validity
+        return SUCCESS_RESPONSE
 
     # Do not disclose whether an account exists.  For a real, verified account
     # rotate every outstanding credential so only the newest email can work.

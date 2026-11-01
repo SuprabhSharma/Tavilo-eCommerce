@@ -20,9 +20,20 @@ dependencies = [
     "sqlmodel",
     "alembic>=1.20.0",
     "Pillow",
+    "redis>=5.2,<6",
 ]
 
 [tool.uv]
 # This is an application project; the source package is named `src`, not
 # `fast_api`, so uv should manage the environment without building a wheel.
 package = false
+
+[dependency-groups]
+dev = [
+    "fakeredis[lua]>=2.31.1",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"

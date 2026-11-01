@@ -19,9 +19,9 @@ from decimal import Decimal
 from typing import Optional
 
 import sqlalchemy.dialects.postgresql as pg
-from sqlalchemy import CheckConstraint, Index, Numeric, Text, UniqueConstraint, text as sa_text
+from sqlalchemy import CheckConstraint, Index, Numeric, Text, UniqueConstraint
+from sqlalchemy import text as sa_text
 from sqlmodel import Column, Field, Relationship, SQLModel
-
 
 # ---------------------------------------------------------------------------
 # User
@@ -186,9 +186,9 @@ class AuditLog(SQLModel, table=True):
     )
     actor_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.uid")
     action: str = Field(sa_column=Column(pg.VARCHAR(80), nullable=False, index=True))
-    target_type: Optional[str] = Field(default=None, max_length=40)
+    target_type: str | None = Field(default=None, max_length=40)
     target_id: Optional[str] = Field(default=None, max_length=120)
-    metadata_json: Optional[str] = Field(default=None, sa_column=Column(Text))
+    metadata_json: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True),
@@ -552,6 +552,14 @@ class Address(SQLModel, table=True):
     state: str = Field(sa_column=Column(pg.VARCHAR(80), nullable=False))
     pincode: str = Field(sa_column=Column(pg.VARCHAR(10), nullable=False))
     is_default: bool = Field(default=False)
+    __table_args__ = (
+        Index(
+            "uq_addresses_one_default_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=sa_text("is_default"),
+        ),
+    )
     created_at: datetime = Field(
         sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     )

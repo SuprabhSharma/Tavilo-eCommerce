@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, Route, Routes, useNavigate } from "react-router-dom";
+import {
+  Link,
+  NavLink,
+  Route,
+  Routes,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
@@ -78,41 +85,48 @@ export default function VendorPortal() {
   });
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
-      <div className="mb-7 flex flex-wrap items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-7 sm:gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-600">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-600 sm:text-xs">
             Seller centre
           </p>
-          <h1 className="mt-1 text-2xl font-bold">Grow your store</h1>
+          <h1 className="mt-1 text-xl font-bold sm:text-2xl">Grow your store</h1>
         </div>
         <Link
           to="/products"
-          className="inline-flex items-center gap-2 text-sm font-semibold text-brand-600"
+          className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-brand-600"
         >
           <ExternalLink size={16} /> Browse Tavilo
         </Link>
       </div>
-      <div className="grid gap-7 lg:grid-cols-[220px_1fr]">
-        <aside className="h-fit rounded-card border border-line bg-white p-3">
-          <div className="mb-3 rounded-lg bg-brand-50 p-3">
+      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-7">
+        <aside className="h-fit rounded-card border border-line bg-white p-2.5 sm:p-3 lg:sticky lg:top-5">
+          <div className="mb-2 rounded-lg bg-brand-50 p-3 sm:mb-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">
               Seller centre
             </p>
-            <p className="mt-1 text-sm font-medium text-brand-900">
+            <p className="mt-1 truncate text-sm font-medium text-brand-900">
               {profile.data?.store_name || "Set up your store"}
             </p>
           </div>
-          <nav className="space-y-1">
+          <nav className="flex gap-1 overflow-x-auto pb-0.5 lg:block lg:space-y-1 lg:overflow-visible">
             {navItems.map(({ to, label, icon: Icon }) => (
-              <Link
+              <NavLink
                 key={to}
                 to={to}
-                className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted hover:bg-slate-50 hover:text-ink"
+                end={to === "/vendor"}
+                className={({ isActive }) =>
+                  `flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium transition lg:gap-3 ${
+                    isActive
+                      ? "bg-brand-50 text-brand-700"
+                      : "text-muted hover:bg-slate-50 hover:text-ink"
+                  }`
+                }
               >
                 <Icon size={17} />
                 {label}
-              </Link>
+              </NavLink>
             ))}
           </nav>
         </aside>
@@ -381,7 +395,21 @@ function ApprovedOverview({ vendor }) {
     queryKey: ["vendor-orders"],
     queryFn: getVendorOrders,
   });
-  const orderList = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
+  const orderList = useMemo(() => {
+    const orders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
+    return orders
+      .map((order, index) => ({ order, index }))
+      .sort((left, right) => {
+        const rightDate = Date.parse(right.order.created_at || "");
+        const leftDate = Date.parse(left.order.created_at || "");
+        return (
+          (Number.isNaN(rightDate) ? 0 : rightDate) -
+            (Number.isNaN(leftDate) ? 0 : leftDate) ||
+          left.index - right.index
+        );
+      })
+      .map(({ order }) => order);
+  }, [ordersQuery.data]);
   const pendingOrders = orderList.filter((o) => o.status === "placed");
   const items = products.data?.items || [];
   const active = items.filter((item) => item.status === "active");
@@ -397,16 +425,16 @@ function ApprovedOverview({ vendor }) {
         title={`Welcome, ${vendor.store_name}`}
         description="Keep your catalogue fresh, process new orders, and monitor your inventory."
         action={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <Link
               to="/vendor/orders"
-              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-4 text-sm font-semibold text-ink hover:bg-slate-50"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-semibold text-ink hover:bg-slate-50 sm:flex-none sm:px-4"
             >
               <ShoppingBag size={17} /> View Orders ({orderList.length})
             </Link>
             <Link
               to="/vendor/products"
-              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-700"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 text-sm font-semibold text-white hover:bg-brand-700 sm:flex-none sm:px-4"
             >
               <Plus size={17} /> Add product
             </Link>
@@ -428,6 +456,8 @@ function ApprovedOverview({ vendor }) {
               label="Action required"
               value={pendingOrders.length}
               tone={pendingOrders.length ? "warning" : "default"}
+              to="/vendor/orders?status=action_required"
+              actionLabel="Manage orders"
             />
             <Metric
               icon={Package}
@@ -445,10 +475,10 @@ function ApprovedOverview({ vendor }) {
               value={formatCurrency(inventoryValue)}
             />
           </div>
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_.7fr]">
+          <div className="mt-5 grid gap-5 lg:mt-6 lg:grid-cols-[1.3fr_.7fr] lg:gap-6">
             <div className="space-y-6">
               {/* Recent Orders Section */}
-              <section className="rounded-card border border-line bg-white p-5">
+              <section className="rounded-card border border-line bg-white p-4 sm:p-5">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="font-bold text-ink">Recent orders</h2>
@@ -518,7 +548,7 @@ function ApprovedOverview({ vendor }) {
               </section>
 
               {/* Recent Products Section */}
-              <section className="rounded-card border border-line bg-white p-5">
+              <section className="rounded-card border border-line bg-white p-4 sm:p-5">
                 <div className="flex items-center justify-between">
                   <h2 className="font-bold">Recent products</h2>
                   <Link
@@ -582,7 +612,7 @@ function ApprovedOverview({ vendor }) {
               )}
             </section>
           </div>
-          <section className="rounded-card border border-line bg-brand-700 p-5 text-white">
+          <section className="h-fit self-start rounded-card border border-line bg-brand-700 p-5 text-white">
               <p className="text-xs font-bold uppercase tracking-widest text-blue-100">
                 Store health
               </p>
@@ -608,17 +638,43 @@ function ApprovedOverview({ vendor }) {
   );
 }
 
-function Metric({ icon: Icon, label, value, tone = "default" }) {
-  return (
-    <div className="rounded-card border border-line bg-white p-5">
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  tone = "default",
+  to,
+  actionLabel,
+}) {
+  const content = (
+    <>
       <div className="flex items-center justify-between">
         <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-50 text-brand-600">
           <Icon size={18} />
         </span>
         {tone === "warning" && <Badge tone="warning">Attention</Badge>}
       </div>
-      <p className="mt-5 text-2xl font-bold">{value}</p>
+      <p className="mt-4 min-w-0 break-all text-xl font-bold leading-tight tracking-tight tabular-nums sm:mt-5 sm:text-2xl">
+        {value}
+      </p>
       <p className="mt-1 text-sm text-muted">{label}</p>
+      {to && (
+        <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-brand-600">
+          {actionLabel} <ChevronRight size={14} />
+        </span>
+      )}
+    </>
+  );
+  return to ? (
+    <Link
+      to={to}
+      className="rounded-card border border-line bg-white p-5 transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-card border border-line bg-white p-5">
+      {content}
     </div>
   );
 }
@@ -627,6 +683,8 @@ function VendorProducts({ profile }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const products = useQuery({
     queryKey: ["vendor-products"],
     queryFn: getAllVendorProducts,
@@ -643,27 +701,21 @@ function VendorProducts({ profile }) {
       queryClient.invalidateQueries({ queryKey: ["vendor-products"] }),
     onError: (e) => setError(getErrorMessage(e)),
   });
+  const items = products.data?.items;
+  const filteredItems = useMemo(
+    () => rankProducts(items || [], deferredSearch),
+    [items, deferredSearch],
+  );
   if (profile.isLoading) return <LoadingPanel />;
   if (profile.isError) return <ApplicationPrompt />;
   if (profile.data.status !== "approved")
     return <PendingVendor profile={profile.data} />;
-  const items = products.data?.items || [];
   return (
     <div>
       <PageHeader
         eyebrow="Catalogue"
         title="Products"
         description="Create, edit and archive the products shown in your store."
-        action={
-          <Button
-            onClick={() => {
-              setError("");
-              setEditing({});
-            }}
-          >
-            <Plus size={17} /> Add product
-          </Button>
-        }
       />
       {error && (
         <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -674,7 +726,7 @@ function VendorProducts({ profile }) {
         <LoadingPanel />
       ) : products.isError ? (
         <ErrorState onRetry={products.refetch} />
-      ) : items.length === 0 ? (
+      ) : items?.length === 0 ? (
         <EmptyState
           title="Your catalogue is empty"
           description="Add a product with a price, stock level and at least one image."
@@ -685,76 +737,138 @@ function VendorProducts({ profile }) {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-line bg-white">
-          <div className="hidden grid-cols-[1fr_110px_100px_120px_100px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
-            <span>Product</span>
-            <span>Price</span>
-            <span>Stock</span>
-            <span>Status</span>
-            <span className="text-right">Actions</span>
-          </div>
-          {items.map((product) => (
-            <div
-              key={product.uid}
-              className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_100px_120px_100px] sm:items-center sm:gap-4"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">
-                  {product.title}
-                </p>
-                <p className="mt-1 truncate text-xs text-muted">
-                  {product.sku || product.slug}
-                </p>
-              </div>
-              <ProductPrice
-                price={product.price}
-                mrp={product.mrp}
-                className="text-sm"
+        <div className="space-y-3">
+          <div className="grid min-h-12 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <label className="relative block">
+              <Search
+                size={18}
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
-              <p
-                className={`text-sm ${product.stock <= LOW_STOCK_THRESHOLD ? "font-semibold text-amber-700" : ""}`}
-              >
-                {product.stock}
-              </p>
-              <Badge
-                tone={
-                  product.status === "active"
-                    ? "success"
-                    : product.status === "archived"
-                      ? "danger"
-                      : "warning"
-                }
-              >
-                {product.status}
-              </Badge>
-              <div className="flex justify-end gap-1">
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search products by name, SKU or slug"
+                aria-label="Search products"
+                className="h-12 w-full rounded-xl border border-line bg-white pl-10 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              />
+              {search && (
                 <button
-                  aria-label={`Edit ${product.title}`}
-                  onClick={() => {
-                    setError("");
-                    setEditing(product);
-                  }}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+                  type="button"
+                  aria-label="Clear product search"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted hover:bg-slate-100 hover:text-ink"
                 >
-                  <Edit3 size={16} />
+                  <X size={16} />
                 </button>
-                <button
-                  aria-label={`Archive ${product.title}`}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Archive this product? It will disappear from your storefront.",
-                      )
-                    )
-                      remove.mutate(product.uid);
-                  }}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
+              )}
+            </label>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setError("");
+                setEditing({});
+              }}
+            >
+              <Plus size={17} /> Add product
+            </Button>
+          </div>
+          <p className="min-h-4 px-1 text-xs text-muted" aria-live="polite">
+            {deferredSearch
+              ? `${filteredItems.length} of ${items.length} products`
+              : `${items.length} products`}
+          </p>
+          <div className="overflow-hidden rounded-card border border-line bg-white">
+            {filteredItems.length === 0 ? (
+              <div className="px-5 py-10 text-center">
+                <p className="font-semibold text-ink">No products found</p>
+                <p className="mt-1 text-sm text-muted">
+                  Try a different name, SKU or slug
+                  {search ? ` for "${search}"` : ""}.
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => setSearch("")}
                 >
-                  <Trash2 size={16} />
-                </button>
+                  Show all products
+                </Button>
               </div>
-            </div>
-          ))}
+            ) : (
+              <>
+                <div className="hidden grid-cols-[1fr_110px_100px_120px_100px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
+                  <span>Product</span>
+                  <span>Price</span>
+                  <span>Stock</span>
+                  <span>Status</span>
+                  <span className="text-right">Actions</span>
+                </div>
+                {filteredItems.map((product) => (
+                <div
+                  key={product.uid}
+                  className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_100px_120px_100px] sm:items-center sm:gap-4"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {product.title}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-muted">
+                      {product.sku || product.slug}
+                    </p>
+                  </div>
+                  <ProductPrice
+                    price={product.price}
+                    mrp={product.mrp}
+                    className="text-sm"
+                  />
+                  <p
+                    className={`text-sm ${product.stock <= LOW_STOCK_THRESHOLD ? "font-semibold text-amber-700" : ""}`}
+                  >
+                    {product.stock}
+                  </p>
+                  <Badge
+                    tone={
+                      product.status === "active"
+                        ? "success"
+                        : product.status === "archived"
+                          ? "danger"
+                          : "warning"
+                    }
+                  >
+                    {product.status}
+                  </Badge>
+                  <div className="flex justify-end gap-1">
+                    <button
+                      aria-label={`Edit ${product.title}`}
+                      onClick={() => {
+                        setError("");
+                        setEditing(product);
+                      }}
+                      className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+                    >
+                      <Edit3 size={16} />
+                    </button>
+                    <button
+                      aria-label={`Archive ${product.title}`}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Archive this product? It will disappear from your storefront.",
+                          )
+                        )
+                          remove.mutate(product.uid);
+                      }}
+                      className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+                ))}
+              </>
+            )}
+          </div>
         </div>
       )}
       {editing && (
@@ -783,6 +897,34 @@ function VendorProducts({ profile }) {
   );
 }
 
+function rankProducts(products, search) {
+  const query = search.trim().toLowerCase();
+  if (!query) return products;
+
+  const terms = query.split(/\s+/).filter(Boolean);
+  return products
+    .map((product, index) => {
+      const title = String(product.title || "").toLowerCase();
+      const sku = String(product.sku || "").toLowerCase();
+      const slug = String(product.slug || "").toLowerCase();
+      const searchable = `${title} ${sku} ${slug}`;
+      const score = terms.reduce((total, term) => {
+        if (title === term) return total + 100;
+        if (title.startsWith(term)) return total + 60;
+        if (title.split(/\s+/).some((word) => word.startsWith(term)))
+          return total + 45;
+        if (title.includes(term)) return total + 30;
+        if (sku.startsWith(term) || slug.startsWith(term)) return total + 25;
+        if (searchable.includes(term)) return total + 10;
+        return total;
+      }, 0);
+      return { product, score, index };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ product }) => product);
+}
+
 function VendorServices({ profile }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(null);
@@ -809,17 +951,17 @@ function VendorServices({ profile }) {
         eyebrow="Service catalogue"
         title="Services"
         description="List the services your store provides with a price and duration."
-        action={
-          <Button
-            onClick={() => {
-              setError("");
-              setEditing({});
-            }}
-          >
-            <Plus size={17} /> Add service
-          </Button>
-        }
       />
+      <div className="mb-5 flex gap-3 rounded-card border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        <AlertTriangle className="mt-0.5 shrink-0 text-amber-600" size={18} />
+        <div>
+          <p className="text-sm font-semibold">Services are still in development</p>
+          <p className="mt-1 text-sm leading-6 text-amber-800">
+            Adding services is not available yet. This is not currently part of
+            our core marketplace goal, but we plan to support it in the future.
+          </p>
+        </div>
+      </div>
       {error && (
         <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
           {error}
@@ -832,12 +974,7 @@ function VendorServices({ profile }) {
       ) : items.length === 0 ? (
         <EmptyState
           title="No services yet"
-          description="Add your first service to show customers what you offer."
-          action={
-            <Button onClick={() => setEditing({})}>
-              Add your first service
-            </Button>
-          }
+          description="Service listings will be available in a future update."
         />
       ) : (
         <div className="overflow-hidden rounded-card border border-line bg-white">
@@ -1091,6 +1228,11 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
     setError("");
     if (!form.title.trim() || !form.slug.trim() || !form.price)
       return setError("Title, slug and price are required.");
+    if (
+      !product &&
+      (!Number.isInteger(Number(form.stock)) || Number(form.stock) <= 0)
+    )
+      return setError("Stock quantity must be at least 1.");
     const sellingPrice = Number(form.price);
     const maximumRetailPrice = form.mrp === "" ? null : Number(form.mrp);
     if (!Number.isFinite(sellingPrice) || sellingPrice <= 0)
@@ -1100,6 +1242,8 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
       (!Number.isFinite(maximumRetailPrice) || maximumRetailPrice < sellingPrice)
     )
       return setError("MRP must be greater than or equal to the selling price.");
+    if (!images.length)
+    return setError("Add at least one product photo before publishing.");
     mutation.mutate({
       ...form,
       price: Number(form.price),
@@ -1187,7 +1331,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
           <Input
             label="Stock quantity"
             type="number"
-            min="0"
+            min="1"
             value={form.stock}
             onChange={(e) =>
               update(
@@ -1200,6 +1344,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
             label="SKU (optional)"
             value={form.sku}
             onChange={(e) => update("sku", e.target.value)}
+            placeholder="Leave blank if you do not use SKUs"
           />
           <Select
             label="Category"
@@ -1227,7 +1372,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
           <label className="space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Product photos</span>
             <span className="block text-xs text-muted">
-              Upload up to 10 photos. Images are automatically compressed for storage.
+              At least 1 photo is required; upload up to 10. Images are automatically compressed for storage.
             </span>
             <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-line bg-slate-50 text-center transition hover:border-brand-500 hover:bg-brand-50">
               <Upload size={22} className="text-brand-600" />
@@ -1454,7 +1599,10 @@ function toForm(product) {
 
 function VendorOrders({ profile }) {
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState(
+    () => searchParams.get("status") || "all",
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState(null);
   const [cancelModalSubUid, setCancelModalSubUid] = useState(null);

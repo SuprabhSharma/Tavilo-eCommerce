@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_PATH: str = "/api/v1/auth"
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
+    REDIS_URL: str = "redis://redis:6379/0"
+    # Set this independently on the next secrets rotation. The safe default
+    # remains domain-separated from JWT signing material.
+    RATE_LIMIT_KEY_SECRET: str | None = None
+    TRUSTED_PROXY_CIDRS: str = "127.0.0.1/32,::1/128"
+    MAX_ADDRESSES_PER_USER: int = 20
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
@@ -128,6 +134,12 @@ class Settings(BaseSettings):
             raise ValueError("CORS_ORIGINS cannot contain '*' in production")
         if "*" in {item.strip() for item in self.TRUSTED_HOSTS.split(",")}:
             raise ValueError("TRUSTED_HOSTS cannot contain '*' in production")
+        if not self.REDIS_URL:
+            raise ValueError("REDIS_URL must be configured in production")
+        if not 1 <= self.MAX_ADDRESSES_PER_USER <= 100:
+            raise ValueError("MAX_ADDRESSES_PER_USER must be between 1 and 100")
+        if self.RATE_LIMIT_KEY_SECRET is None:
+            self.RATE_LIMIT_KEY_SECRET = f"ratelimit:v1:{self.JWT_SECRET}"
         return self
 
     # Resolve the env file from the backend package, not the process cwd.

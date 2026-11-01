@@ -112,13 +112,16 @@ export default function Account() {
             {wishlist.data?.total || 0} saved items
           </p>
         </Link>
-        <div className="rounded-card border border-line bg-white p-5">
+        <Link
+          to="/addresses"
+          className="rounded-card border border-line bg-white p-5 hover:border-brand-100"
+        >
           <MapPin className="text-brand-600" />
           <p className="mt-4 font-semibold">Addresses</p>
           <p className="mt-1 text-sm text-muted">
             {addresses.data?.length || 0} saved addresses
           </p>
-        </div>
+        </Link>
         <Link
           to={isAdmin ? "/admin" : "/vendor"}
           className="rounded-card border border-brand-100 bg-brand-50 p-5 hover:border-brand-200"

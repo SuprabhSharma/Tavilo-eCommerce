@@ -30,6 +30,45 @@ const nav = [
   { to: "/cart", label: "Cart", icon: ShoppingBag },
   { to: "/account", label: "Account", icon: UserRound },
 ];
+
+const pageMeta = {
+  "/": {
+    title: "Tavilo | Good finds. Trusted stores.",
+    description:
+      "Discover quality products from trusted independent stores on Tavilo.",
+  },
+  "/products": {
+    title: "Shop products | Tavilo",
+    description:
+      "Browse quality products from trusted independent stores on Tavilo.",
+  },
+  "/search": {
+    title: "Search products | Tavilo",
+    description:
+      "Search products from trusted independent stores on Tavilo.",
+  },
+  "/account": {
+    title: "Your account | Tavilo",
+    description: "Manage your Tavilo account, orders, addresses and saved items.",
+  },
+  "/cart": {
+    title: "Shopping cart | Tavilo",
+    description: "Review your selected products before checkout on Tavilo.",
+  },
+};
+
+function updatePageMeta(pathname) {
+  const meta = pageMeta[pathname] || {
+    title: "Tavilo | Good finds. Trusted stores.",
+    description:
+      "Discover quality products from trusted independent stores on Tavilo.",
+  };
+  document.title = meta.title;
+  document
+    .querySelector('meta[name="description"]')
+    ?.setAttribute("content", meta.description);
+}
+
 export default function ShopLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -47,6 +86,9 @@ export default function ShopLayout() {
   const queryClient = useQueryClient();
   useEffect(() => {
     setMenuOpen(false);
+  }, [location.pathname]);
+  useEffect(() => {
+    updatePageMeta(location.pathname);
   }, [location.pathname]);
   const submitSearch = (event) => {
     event.preventDefault();
@@ -275,6 +317,23 @@ export default function ShopLayout() {
       <main>
         <Outlet />
       </main>
+      <footer className="border-t border-line bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-center text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left lg:px-8">
+          <p>
+            <span className="font-semibold text-ink">Tavilo</span> &mdash;{" "}
+            {brand.tagline}
+          </p>
+          <p>
+            Copyright &copy; {new Date().getFullYear()} Suprabh Sharma.{" "}
+            <a
+              href="tel:+919756455554"
+              className="font-medium text-brand-700 hover:text-brand-600"
+            >
+              Contact: 9756455554
+            </a>
+          </p>
+        </div>
+      </footer>
       <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-line bg-white px-2 pt-2 md:hidden">
         {nav.map(({ to, label, icon: Icon }) => (
           <NavLink

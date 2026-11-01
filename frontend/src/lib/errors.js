@@ -9,9 +9,39 @@ const messages = {
   invalid_token: "Your session has expired. Please sign in again.",
   server_error: "Something went wrong on our side. Please try again.",
 };
-export const getErrorMessage = (error) =>
-  messages[error?.response?.data?.error_code] ||
-  error?.response?.data?.message ||
-  error?.response?.data?.detail ||
-  error?.message ||
-  "Something went wrong. Please try again.";
+
+const validationMessage = (detail) => {
+  if (!Array.isArray(detail)) return null;
+
+  const firstError = detail[0];
+  if (typeof firstError === "string") return firstError;
+  if (!firstError || typeof firstError !== "object") return null;
+
+  const location = Array.isArray(firstError.loc)
+    ? firstError.loc.filter((part) => part !== "body").join(" > ")
+    : "";
+  const message = typeof firstError.msg === "string" ? firstError.msg : null;
+  return message
+    ? location
+      ? `${location}: ${message}`
+      : message
+    : null;
+};
+
+export const getErrorMessage = (error) => {
+  const response = error?.response?.data;
+  const detail =
+    typeof response?.detail === "string"
+      ? response.detail
+      : validationMessage(response?.detail);
+  const message =
+    typeof response?.message === "string" ? response.message : null;
+
+  return (
+    messages[response?.error_code] ||
+    message ||
+    detail ||
+    (typeof error?.message === "string" ? error.message : null) ||
+    "Something went wrong. Please try again."
+  );
+};

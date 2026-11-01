@@ -7,7 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.auth.dependencies import get_verified_user
 from src.db.main import get_session
 from src.db.models import User
-from src.errors import ProductNotFound
+from src.errors import AddressNotFound
 
 from .schemas import AddressCreate, AddressOut, AddressUpdate
 from .service import AddressService
@@ -17,7 +17,10 @@ service = AddressService()
 
 
 @address_router.get("", response_model=List[AddressOut])
-async def list_addresses(current_user: User = Depends(get_verified_user), session: AsyncSession = Depends(get_session)):
+async def list_addresses(
+    current_user: User = Depends(get_verified_user),
+    session: AsyncSession = Depends(get_session),
+):
     return await service.get_all(current_user.uid, session)
 
 
@@ -37,10 +40,10 @@ async def update_address(
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
-    addr = await service.get_by_id(uid, current_user.uid, session)
-    if not addr:
-        raise ProductNotFound()
-    return await service.update(addr, data, session)
+    address = await service.update(uid, current_user.uid, data, session)
+    if address is None:
+        raise AddressNotFound()
+    return address
 
 
 @address_router.delete("/{uid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -49,7 +52,5 @@ async def delete_address(
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
-    addr = await service.get_by_id(uid, current_user.uid, session)
-    if not addr:
-        raise ProductNotFound()
-    await service.delete(addr, session)
+    if not await service.delete(uid, current_user.uid, session):
+        raise AddressNotFound()

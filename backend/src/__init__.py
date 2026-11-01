@@ -11,6 +11,11 @@ from src.cart.routes import cart_router
 from src.categories.routes import category_router
 from src.config import Config, configure_application_logging
 from src.db.main import async_engine, check_db_connection, init_db
+from src.auth.rate_limit import (
+    check_redis_connection,
+    initialize_rate_limiter,
+    shutdown_rate_limiter,
+)
 from src.orders.routes import order_router
 from src.products.image_storage import PRODUCT_IMAGE_DIR
 from src.products.routes import product_router, serve_product_image
@@ -37,9 +42,11 @@ async def life_span(app: FastAPI):
         await init_db()
     else:
         await check_db_connection()
+    await initialize_rate_limiter()
     try:
         yield
     finally:
+        await shutdown_rate_limiter()
         await async_engine.dispose()
         logger.info("Server is stopping")
 
@@ -80,6 +87,10 @@ async def ready():
         await check_db_connection()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Database is unavailable") from exc
+    try:
+        await check_redis_connection()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Redis is unavailable") from exc
     return JSONResponse({"status": "ready", "version": version})
 
 

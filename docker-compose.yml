@@ -11,6 +11,9 @@ networks:
   tavilo_network:
     driver: bridge
     internal: false   # allow outbound (email, etc.)
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 # ── Named volumes ──────────────────────────────────────────
 volumes:
@@ -53,15 +56,20 @@ services:
       dockerfile: Dockerfile
     restart: always
     networks:
-      - tavilo_network
+      tavilo_network:
+        ipv4_address: 172.30.0.2
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     env_file:
       - ./backend/.env.production
     environment:
       # Override DATABASE_URL with the correct docker-network hostname
       DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
+      REDIS_URL: "redis://redis:6379/0"
+      TRUSTED_PROXY_CIDRS: "172.30.0.3/32"
     volumes:
       # Persist product images across deploys
       - media_uploads:/app/uploads
@@ -74,6 +82,21 @@ services:
       start_period: 40s
 
   # ──────────────────────────────────────────────────────────
+  # Redis is private to the Docker network and holds only expiring, HMAC-keyed
+  # rate-limit buckets. It has no published port and no persistence volume.
+  redis:
+    image: redis:7.4-alpine
+    restart: always
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      tavilo_network:
+        ipv4_address: 172.30.0.4
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # React frontend (nginx reverse-proxy + static files)
   # ──────────────────────────────────────────────────────────
   frontend:
@@ -82,7 +105,8 @@ services:
       dockerfile: Dockerfile
     restart: always
     networks:
-      - tavilo_network
+      tavilo_network:
+        ipv4_address: 172.30.0.3
     depends_on:
       api:
         condition: service_healthy

@@ -13,6 +13,11 @@ services:
     ports:
       - "5432:5432"
 
+  # Allow the host-run backend to use the containerized Redis instance.
+  redis:
+    ports:
+      - "6379:6379"
+
   # ── Hot-reload FastAPI with local source mounted
   api:
     build:

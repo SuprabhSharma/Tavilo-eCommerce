@@ -10,3 +10,4 @@ pydantic-settings
 sqlalchemy[asyncio]
 sqlmodel
 Pillow
+redis>=5.2,<6

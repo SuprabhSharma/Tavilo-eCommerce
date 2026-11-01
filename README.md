@@ -689,7 +689,7 @@ docker compose up -d db
 # backend
 cd backend
 uv sync                       # or: python -m venv .venv && pip install -r requirements.txt
-alembic upgrade head          # create the schema
+uv run python -m alembic upgrade head  # create the schema
 uvicorn src:app --reload --port 8000
 
 # frontend (new terminal)
@@ -728,8 +728,8 @@ Creates one admin (password from `ADMIN_BOOTSTRAP_PASSWORD`), three approved ven
 ```bash
 npm run build            # production frontend build
 npm run lint             # ESLint, zero warnings allowed
-alembic upgrade head     # apply database migrations
-alembic revision --autogenerate -m "describe change"   # create a migration
+uv run python -m alembic upgrade head  # apply database migrations
+uv run python -m alembic revision --autogenerate -m "describe change"  # create a migration
 ```
 
 </details>

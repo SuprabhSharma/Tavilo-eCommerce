@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 
 def calculate_discount_percent(price: Decimal, mrp: Decimal | None) -> Decimal:
@@ -42,14 +42,27 @@ class ProductSummaryOut(BaseModel):
 
 
 class ProductBase(BaseModel):
-    title: str
+    title: str = Field(..., min_length=2, max_length=255)
     description: str | None = None
     price: Decimal = Field(..., gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
-    stock: int = Field(default=0, ge=0)
-    sku: str | None = None
+    stock: int = Field(..., gt=0)
+    sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     attributes: dict | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def normalize_sku(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @model_validator(mode='after')
     def validate_prices(self):
@@ -58,21 +71,55 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    slug: str
-    image_urls: list[str] = []
+    slug: str = Field(..., min_length=1, max_length=280)
+    image_urls: list[str] = Field(..., min_length=1, max_length=10)
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def normalize_slug(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("image_urls")
+    @classmethod
+    def require_product_image(cls, value: list[str]) -> list[str]:
+        if not any(isinstance(url, str) and url.strip() for url in value):
+            raise ValueError("At least one product image is required")
+        return value
 
 
 class ProductUpdate(BaseModel):
-    title: str | None = None
+    title: str | None = Field(default=None, min_length=2, max_length=255)
     description: str | None = None
     price: Decimal | None = Field(default=None, gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
     stock: int | None = Field(default=None, ge=0)
-    sku: str | None = None
+    sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     status: str | None = None
     attributes: dict | None = None
-    image_urls: list[str] | None = None
+    image_urls: list[str] | None = Field(default=None, min_length=1, max_length=10)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_update_title(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def normalize_update_sku(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("image_urls")
+    @classmethod
+    def require_update_product_image(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and not any(
+            isinstance(url, str) and url.strip() for url in value
+        ):
+            raise ValueError("At least one product image is required")
+        return value
 
     @model_validator(mode='after')
     def validate_prices(self):

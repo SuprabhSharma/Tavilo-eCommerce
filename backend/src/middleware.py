@@ -33,16 +33,12 @@ def register_middleware(app: FastAPI):
                     "http_path": request.url.path,
                     "http_status_code": 500,
                     "http_duration_ms": round(processing_time * 1000, 2),
-                    "client_ip": request.client.host if request.client else "unknown",
                 },
             )
             raise
 
         processing_time = time.perf_counter() - start_time
-        client = request.client
-        client_address = (
-            f"{client.host}:{client.port}" if client is not None else "unknown"
-        )
+
         request_logger.info(
             "HTTP %s %s -> %s in %.2fms",
             request.method,
@@ -54,7 +50,6 @@ def register_middleware(app: FastAPI):
                 "http_path": request.url.path,
                 "http_status_code": response.status_code,
                 "http_duration_ms": round(processing_time * 1000, 2),
-                "client_ip": client_address,
             },
         )
         return response

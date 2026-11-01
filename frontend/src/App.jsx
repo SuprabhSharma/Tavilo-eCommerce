@@ -25,6 +25,7 @@ const Cart = lazy(() => import("./pages/Cart"));
 const Checkout = lazy(() => import("./pages/Checkout"));
 const Wishlist = lazy(() => import("./pages/Wishlist"));
 const Account = lazy(() => import("./pages/Account"));
+const Addresses = lazy(() => import("./pages/Addresses"));
 const OrdersModule = lazy(() =>
   import("./pages/Orders").then((m) => ({ default: m.default || m.Orders })),
 );
@@ -156,6 +157,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Wishlist />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/addresses"
+              element={
+                <ProtectedRoute>
+                  <Addresses />
                 </ProtectedRoute>
               }
             />

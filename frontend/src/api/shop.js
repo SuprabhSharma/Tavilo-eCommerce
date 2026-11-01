@@ -14,6 +14,12 @@ export const removeWishlist = (productId) =>
 export const getAddresses = () => api.get("/addresses").then((r) => r.data);
 export const addAddress = (payload) =>
   api.post("/addresses", payload).then((r) => r.data);
+export const updateAddress = (uid, payload) =>
+  api.patch(`/addresses/${uid}`, payload).then((r) => r.data);
+export const deleteAddress = (uid) =>
+  api.delete(`/addresses/${uid}`).then((r) => r.data);
+export const setDefaultAddress = (uid) =>
+  updateAddress(uid, { is_default: true });
 export const checkout = (payload) =>
   api.post("/orders/checkout", payload).then((r) => r.data);
 export const getOrders = () => api.get("/orders").then((r) => r.data);
