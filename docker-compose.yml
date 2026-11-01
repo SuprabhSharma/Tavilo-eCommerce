@@ -1,45 +1,68 @@
 ##############################################################
 # Tavilo — Production Docker Compose
-# Usage: docker compose up -d
-# Secrets: populate .env.server and backend/.env.production
+#
+# Deploy with:  bash deploy.sh        (never run `compose up` by hand)
+# Secrets:      .env.server  and  backend/.env.production
+#
+# Design rules (these are what make deploys boring):
+#   1. NO fixed container IPs. Services find each other by name.
+#      (Fixed IPs collided with Docker's auto-assigned addresses and
+#       caused "Address already in use" on every migration run.)
+#   2. Migrations are their own one-shot service. `api` cannot start
+#      until `migrate` has exited 0, so order is enforced by Compose.
+#   3. Everything has a healthcheck and a log-rotation cap.
 ##############################################################
 
 name: tavilo
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Shared by `api` and `migrate` so they can never drift apart.
+x-api-env: &api-env
+  env_file:
+    - ./backend/.env.production
+  environment:
+    DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
+    REDIS_URL: "redis://redis:6379/0"
+    # Only the nginx container ever talks to the API (no published port), and
+    # the subnet below is private to this stack, so trusting it is equivalent
+    # to trusting nginx without needing a fixed IP.
+    TRUSTED_PROXY_CIDRS: "172.30.0.0/24"
 
 # ── Shared network ─────────────────────────────────────────
 networks:
   tavilo_network:
     driver: bridge
-    internal: false   # allow outbound (email, etc.)
     ipam:
       config:
         - subnet: 172.30.0.0/24
 
-# ── Named volumes ──────────────────────────────────────────
+# ── Named volumes (survive `down`; never run `down -v` in prod) ─
 volumes:
   pgdata:
-    driver: local
   media_uploads:
-    driver: local
 
 services:
 
   # ──────────────────────────────────────────────────────────
-  # PostgreSQL 16
+  # PostgreSQL 16 — private, no published port
   # ──────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
-    restart: always
-    networks:
-      - tavilo_network
+    restart: unless-stopped
+    networks: [tavilo_network]
+    logging: *default-logging
     environment:
-      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB:       ${DB_NAME}
-      PGDATA:            /var/lib/postgresql/data/pgdata
+      POSTGRES_DB: ${DB_NAME}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # ── No external port — only accessible inside the bridge network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
@@ -48,71 +71,89 @@ services:
       start_period: 20s
 
   # ──────────────────────────────────────────────────────────
-  # FastAPI backend
+  # Redis — private, holds only expiring rate-limit buckets
   # ──────────────────────────────────────────────────────────
-  api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: always
-    networks:
-      tavilo_network:
-        ipv4_address: 172.30.0.2
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    env_file:
-      - ./backend/.env.production
-    environment:
-      # Override DATABASE_URL with the correct docker-network hostname
-      DATABASE_URL: "postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
-      REDIS_URL: "redis://redis:6379/0"
-      TRUSTED_PROXY_CIDRS: "172.30.0.3/32"
-    volumes:
-      # Persist product images across deploys
-      - media_uploads:/app/uploads
-    # ── No external port — nginx proxies all traffic
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # ──────────────────────────────────────────────────────────
-  # Redis is private to the Docker network and holds only expiring, HMAC-keyed
-  # rate-limit buckets. It has no published port and no persistence volume.
   redis:
     image: redis:7.4-alpine
-    restart: always
+    restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
-    networks:
-      tavilo_network:
-        ipv4_address: 172.30.0.4
+    networks: [tavilo_network]
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
 
-  # React frontend (nginx reverse-proxy + static files)
+  # ──────────────────────────────────────────────────────────
+  # One-shot: alembic upgrade head. Runs on every `up`, exits 0.
+  # Reuses the image built for `api` (no second build).
+  # ──────────────────────────────────────────────────────────
+  migrate:
+    image: tavilo-api:latest
+    pull_policy: never
+    restart: "no"
+    networks: [tavilo_network]
+    logging: *default-logging
+    <<: *api-env
+    entrypoint: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────
+  # FastAPI backend — private, nginx proxies all traffic
+  # ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: tavilo-api:latest
+    restart: unless-stopped
+    networks: [tavilo_network]
+    logging: *default-logging
+    <<: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────
+  # nginx: static React build + reverse proxy to api
   # ──────────────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    restart: always
-    networks:
-      tavilo_network:
-        ipv4_address: 172.30.0.3
+    image: tavilo-frontend:latest
+    restart: unless-stopped
+    networks: [tavilo_network]
+    logging: *default-logging
     depends_on:
       api:
         condition: service_healthy
+        # nginx resolves `api` once at start. If `api` is ever recreated
+        # (new IP), restart nginx too so it never proxies to a dead address.
+        restart: true
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./frontend/nginx.conf:/etc/nginx/conf.d/tavilo.conf:ro
       - /opt/tavilo/ssl:/etc/nginx/ssl:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

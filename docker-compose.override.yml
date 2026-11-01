@@ -18,6 +18,14 @@ services:
     ports:
       - "6379:6379"
 
+  # ── Local migrations use the dev env file, not .env.production
+  migrate:
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER:-tavilo_user}:${DB_PASSWORD:-localpassword}@db:5432/${DB_NAME:-tavilo_dev}"
+      APP_ENV: development
+
   # ── Hot-reload FastAPI with local source mounted
   api:
     build:
