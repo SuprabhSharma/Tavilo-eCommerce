@@ -14,7 +14,6 @@ backend/uploads/
 .vscode/settings.json
 frontend/.env.development
 
-# ── Production secrets (NEVER commit these) ──────────────
 backend/.env.production
 .env.server
 backend/.env
