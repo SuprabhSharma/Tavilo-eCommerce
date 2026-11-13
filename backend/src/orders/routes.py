@@ -1,7 +1,7 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.dependencies import get_verified_user
@@ -65,8 +65,13 @@ async def checkout(
 
 
 @order_router.get("", response_model=List[OrderOut])
-async def list_orders(current_user: User = Depends(get_verified_user), session: AsyncSession = Depends(get_session)):
-    return await service.get_user_orders(current_user.uid, session)
+async def list_orders(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(get_verified_user),
+    session: AsyncSession = Depends(get_session),
+):
+    return await service.get_user_orders(current_user.uid, session, page=page, page_size=page_size)
 
 
 @order_router.get("/{uid}", response_model=OrderOut)

@@ -28,9 +28,7 @@ services:
 
   # ── Hot-reload FastAPI with local source mounted
   api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    entrypoint: ["uvicorn"]
     # Override env_file for local development
     env_file:
       - ./backend/.env
@@ -43,15 +41,19 @@ services:
     ports:
       - "8000:8000"
     # Override entrypoint with --reload
-    command: >
-      uvicorn src:app
-      --host 0.0.0.0
-      --port 8000
-      --reload
-      --log-level debug
+    command:
+      - src:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --log-level
+      - debug
 
   # ── Vite dev server instead of nginx
   frontend:
+    build: null
     image: node:22-alpine
     working_dir: /app
     volumes:
@@ -62,6 +64,12 @@ services:
       VITE_API_URL: ""
     # Install deps if node_modules is missing, then start dev server
     command: >
-      sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+      sh -c "if [ ! -x node_modules/.bin/vite ]; then npm ci --no-audit --no-fund; fi && npm run dev -- --host 0.0.0.0"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5173/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
     depends_on:
       - api

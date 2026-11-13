@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+import json
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
@@ -32,8 +33,13 @@ class ProductSummaryOut(BaseModel):
     slug: str
     price: Decimal
     mrp: Decimal | None = None
-    stock: int
+    stock: int = Field(exclude=True)
     images: list[ProductImageOut] = []
+
+    @computed_field
+    @property
+    def is_available(self) -> bool:
+        return self.stock > 0
 
     @computed_field
     @property
@@ -63,6 +69,15 @@ class ProductBase(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("attributes")
+    @classmethod
+    def cap_attributes_size(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return v
+        if len(json.dumps(v, default=str)) > 8192:
+            raise ValueError("Product attributes must not exceed 8 KB")
+        return v
 
     @model_validator(mode='after')
     def validate_prices(self):
@@ -121,6 +136,15 @@ class ProductUpdate(BaseModel):
             raise ValueError("At least one product image is required")
         return value
 
+    @field_validator("attributes")
+    @classmethod
+    def cap_update_attributes_size(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return v
+        if len(json.dumps(v, default=str)) > 8192:
+            raise ValueError("Product attributes must not exceed 8 KB")
+        return v
+
     @model_validator(mode='after')
     def validate_prices(self):
         if self.price is not None and self.mrp is not None:
@@ -170,9 +194,54 @@ class ProductOut(BaseModel):
         return calculate_discount_percent(self.price, self.mrp)
 
 
+class ProductPublicOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    title: str
+    slug: str
+    description: str | None = None
+    price: Decimal
+    mrp: Decimal | None = None
+    status: str
+    rating_avg: Decimal
+    rating_count: int
+    stock: int = Field(exclude=True)
+    attributes: dict | None = None
+    vendor: VendorMiniOut | None = None
+    category: CategoryMiniOut | None = None
+    images: list[ProductImageOut] = []
+    created_at: datetime | None = None
+
+    @computed_field
+    @property
+    def is_available(self) -> bool:
+        return self.stock > 0
+
+    @computed_field
+    @property
+    def discount_percent(self) -> Decimal:
+        return calculate_discount_percent(self.price, self.mrp)
+
+
 class ProductListOut(BaseModel):
+    items: list[ProductPublicOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class VendorProductListOut(BaseModel):
     items: list[ProductOut]
     total: int
     page: int
     page_size: int
     pages: int
+
+
+class VendorProductSummaryOut(BaseModel):
+    total: int
+    active: int
+    low_stock: int
+    inventory_value: float

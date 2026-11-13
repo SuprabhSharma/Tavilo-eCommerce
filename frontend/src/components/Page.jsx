@@ -39,7 +39,7 @@ export const ProductGridSkeleton = () => (
   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
     {Array.from({ length: 8 }).map((_, i) => (
       <div key={i} className="rounded-card border border-line bg-white p-3">
-        <Skeleton className="aspect-square" />
+        <Skeleton className="aspect-[1.05]" />
         <Skeleton className="mt-4 h-3 w-1/3" />
         <Skeleton className="mt-2 h-4 w-full" />
         <Skeleton className="mt-3 h-5 w-1/2" />

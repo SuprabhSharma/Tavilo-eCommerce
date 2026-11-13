@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -21,6 +21,12 @@ from .schemas import (
 
 
 class OrderService:
+    CANCELLABLE_ORDER_STATUSES = {"placed", "confirmed"}
+    SHIPPING_ORDER_STATUSES = {"shipped", "delivered"}
+    CANCELLATION_BLOCKED_MESSAGE = (
+        "This order can no longer be cancelled because a seller has shipped it."
+    )
+
     def _build_order_out(self, order: Order, is_existing: bool = False) -> OrderOut:
         sub_orders_out = []
         for sub in order.sub_orders:
@@ -45,6 +51,8 @@ class OrderService:
                     store_name=sub.store_name,
                     subtotal=sub.subtotal,
                     status=sub.status,
+                    created_at=sub.created_at,
+                    updated_at=sub.updated_at,
                     items=items_out,
                     parent_order_status=order.status,
                 )
@@ -82,6 +90,21 @@ class OrderService:
             if existing_order:
                 return self._build_order_out(existing_order, is_existing=True)
 
+        try:
+            return await self._checkout_transaction(
+                user_id, data, session, idempotency_key
+            )
+        except Exception:
+            await session.rollback()
+            raise
+
+    async def _checkout_transaction(
+        self,
+        user_id: uuid.UUID,
+        data: CheckoutRequest,
+        session: AsyncSession,
+        idempotency_key: Optional[str],
+    ) -> OrderOut:
         # 1. Fetch address
         addr_result = await session.exec(
             select(Address).where(Address.uid == data.address_id, Address.user_id == user_id)
@@ -90,9 +113,22 @@ class OrderService:
         if not addr:
             raise HTTPException(status_code=400, detail="Address not found")
 
-        # 2. Fetch cart items
-        cart_result = await session.exec(select(Cart).where(Cart.user_id == user_id))
+        # 2. Lock customer's cart row to serialize concurrent checkout attempts
+        cart_result = await session.exec(
+            select(Cart).where(Cart.user_id == user_id).with_for_update()
+        )
         cart = cart_result.first()
+
+        # Re-check idempotency key after acquiring cart lock:
+        # If a concurrent request won the lock and committed an order, return it idempotently
+        if idempotency_key:
+            existing_result = await session.exec(
+                select(Order).where(Order.user_id == user_id, Order.idempotency_key == idempotency_key)
+            )
+            existing_order = existing_result.first()
+            if existing_order:
+                return self._build_order_out(existing_order, is_existing=True)
+
         if not cart or not cart.items:
             raise HTTPException(status_code=400, detail="Cart is empty")
 
@@ -259,6 +295,8 @@ class OrderService:
                 store_name=store_name,
                 subtotal=sub.subtotal,
                 status=sub.status,
+                created_at=sub.created_at,
+                updated_at=sub.updated_at,
                 items=order_items_out,
                 parent_order_status=order.status,
             ))
@@ -294,10 +332,13 @@ class OrderService:
         setattr(out, "_is_existing", False)
         return out
 
-    async def get_user_orders(self, user_id: uuid.UUID, session: AsyncSession) -> List[Order]:
-        result = await session.exec(
-            select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc())
-        )
+    async def get_user_orders(
+        self, user_id: uuid.UUID, session: AsyncSession,
+        page: int = 1, page_size: int = 20
+    ) -> List[Order]:
+        stmt = select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        result = await session.exec(stmt)
         return result.all()
 
     async def get_order(self, order_uid: uuid.UUID, user_id: uuid.UUID, session: AsyncSession):
@@ -309,7 +350,7 @@ class OrderService:
             raise OrderNotFound()
         return order
 
-    async def cancel_order(self, order_uid: uuid.UUID, user_id: uuid.UUID, session: AsyncSession):
+    async def cancel_order(self, order_uid: uuid.UUID, user_id: uuid.UUID, session: AsyncSession) -> OrderOut:
         result = await session.exec(
             select(Order).where(Order.uid == order_uid, Order.user_id == user_id).with_for_update()
         )
@@ -317,9 +358,9 @@ class OrderService:
         if not order:
             raise OrderNotFound()
 
-        # Idempotent cancel: if already cancelled, return existing order
+        # Idempotent cancel: already cancelled — rebuild and return proper schema
         if order.status == "cancelled":
-            return order
+            return self._build_order_out(order)
 
         # Lock all sub-orders explicitly so concurrent sub-order status updates wait
         subs_res = await session.exec(
@@ -329,10 +370,21 @@ class OrderService:
             .execution_options(populate_existing=True)
         )
         current_subs = subs_res.all()
-        if any(sub.status != "placed" for sub in current_subs):
-            raise HTTPException(status_code=400, detail="Cannot cancel order once processed by seller")
 
-        if order.status not in ("placed",):
+        # Cancellation remains available until a seller ships an active sub-order.
+        # A vendor-cancelled sub (status="cancelled") must NOT block the customer —
+        # it means that seller already stepped away; the remaining placed subs are still cancellable.
+        if order.status in self.SHIPPING_ORDER_STATUSES or any(
+            sub.status in self.SHIPPING_ORDER_STATUSES for sub in current_subs
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=self.CANCELLATION_BLOCKED_MESSAGE,
+            )
+
+        # Secondary guard using parent order status (defence-in-depth).
+        # Confirmed orders are still cancellable; shipping is the point of no return.
+        if order.status not in self.CANCELLABLE_ORDER_STATUSES:
             raise HTTPException(status_code=400, detail="Cannot cancel order in current state")
 
         order.status = "cancelled"
@@ -340,12 +392,16 @@ class OrderService:
             order.payment_status = "refunded"
         order.updated_at = datetime.now(timezone.utc)
 
-        # Bug 1 fix: iterate current_subs (the DB-locked result set) instead of
-        # order.sub_orders (ORM selectin cache loaded before the FOR UPDATE lock).
+        # Iterate the FOR-UPDATE-locked result set (not the stale ORM cache).
+        # Skip sub-orders already cancelled by the vendor — their stock was already restored
+        # when the vendor cancelled, and double-restoring would corrupt inventory.
         for sub in current_subs:
+            if sub.status == "cancelled":
+                continue  # vendor already cancelled this leg; stock already restored
             sub.status = "cancelled"
             sub.updated_at = datetime.now(timezone.utc)
             session.add(sub)
+            # Restore stock in deterministic product_id order to prevent deadlocks
             sorted_items = sorted(sub.items, key=lambda it: it.product_id)
             for item in sorted_items:
                 p_res = await session.exec(
@@ -358,8 +414,10 @@ class OrderService:
 
         session.add(order)
         await session.commit()
+        # Refresh the Order row; sub-order relationships are re-populated via selectin
         await session.refresh(order)
-        return order
+        # Always return the typed schema — never the raw ORM object
+        return self._build_order_out(order)
 
     async def get_vendor_orders(self, vendor_id: uuid.UUID, session: AsyncSession) -> List[VendorSubOrderOut]:
         result = await session.exec(
@@ -368,12 +426,16 @@ class OrderService:
             .order_by(SubOrder.created_at.desc())
         )
         sub_orders = result.all()
+        # Batch-load parent orders to avoid N+1
+        order_ids = {sub.order_id for sub in sub_orders}
+        if order_ids:
+            orders_res = await session.exec(select(Order).where(Order.uid.in_(order_ids)))
+            orders_map: Dict[uuid.UUID, Order] = {o.uid: o for o in orders_res.all()}
+        else:
+            orders_map = {}
         out: List[VendorSubOrderOut] = []
         for sub in sub_orders:
-            order = sub.order
-            if not order:
-                o_res = await session.exec(select(Order).where(Order.uid == sub.order_id))
-                order = o_res.first()
+            order = orders_map.get(sub.order_id)
 
             items_out = [
                 VendorOrderItemOut(
@@ -454,6 +516,7 @@ class OrderService:
                 p = await session.get(Product, item.product_id)
                 if p:
                     p.stock += item.quantity
+                    session.add(p)
 
         sub.status = new_status
         sub.updated_at = datetime.now(timezone.utc)
@@ -470,6 +533,8 @@ class OrderService:
             active_subs = [s for s in all_subs if s.status != "cancelled"]
             if not active_subs:
                 order.status = "cancelled"
+                if order.payment_method == "online_mock":
+                    order.payment_status = "refunded"
             elif all(s.status == "delivered" for s in active_subs):
                 order.status = "delivered"
             elif any(s.status in ("shipped", "delivered") for s in active_subs):
@@ -511,6 +576,8 @@ class OrderService:
             store_name=store_name,
             subtotal=sub.subtotal,
             status=sub.status,
+            created_at=sub.created_at,
+            updated_at=sub.updated_at,
             items=items_out,
             parent_order_status=parent_status,
         )

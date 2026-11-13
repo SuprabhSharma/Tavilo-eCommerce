@@ -5,6 +5,7 @@ import { Heart, LogOut, MapPin, Package, Store, UserRound } from "lucide-react";
 import { getMe } from "../api/auth";
 import { getAddresses, getWishlist } from "../api/shop";
 import { useAuthStore } from "../store/authStore";
+import { useGuestStore } from "../store/guestStore";
 import { Button, ErrorState, Skeleton } from "../components/ui";
 import { getErrorMessage } from "../lib/errors";
 import { api } from "../lib/apiClient";
@@ -149,6 +150,9 @@ export default function Account() {
 
 function AuthPrompt({ next }) {
   const navigate = useNavigate();
+  const guestWishlistCount = useGuestStore(
+    (state) => state.wishlist.items.length,
+  );
   return (
     <div className="mx-auto max-w-md px-4 py-16 text-center">
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-brand-50 text-brand-600">
@@ -170,6 +174,25 @@ function AuthPrompt({ next }) {
           Create account
         </Button>
       </div>
+      {guestWishlistCount > 0 && (
+        <div className="mt-8 rounded-card border border-line bg-white p-4 text-left shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Heart size={18} className="text-brand-600" />
+              <span className="text-sm font-semibold text-ink">Guest Wishlist</span>
+            </div>
+            <Link
+              to="/wishlist"
+              className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+            >
+              View {guestWishlistCount} saved {guestWishlistCount === 1 ? "item" : "items"} &rarr;
+            </Link>
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            You have items saved in your guest wishlist. Sign in to sync them to your account.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

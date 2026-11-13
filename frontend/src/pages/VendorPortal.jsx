@@ -56,6 +56,7 @@ import {
 import { BackLink, PageHeader } from "../components/Page";
 import ProductPrice from "../components/ProductPrice";
 import ProductGallery from "../components/ProductGallery";
+import { broadcastOrderUpdate } from "../lib/orderSync";
 import {
   Badge,
   Button,
@@ -1615,13 +1616,19 @@ function VendorOrders({ profile }) {
   const updateStatusMutation = useMutation({
     mutationFn: ({ subUid, status }) =>
       updateVendorSubOrderStatus(subUid, status),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       setCancelModalSubUid(null);
       queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["order"] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product"] });
       queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+      broadcastOrderUpdate({
+        subUid: variables.subUid,
+        orderId: data?.order_id,
+        status: variables.status,
+      });
     },
   });
 

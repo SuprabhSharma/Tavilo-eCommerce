@@ -21,6 +21,8 @@ import { Button, Input, PasswordInput } from "../components/ui";
 import { brand } from "../config/brand";
 import { getErrorMessage } from "../lib/errors";
 import { useAuthStore } from "../store/authStore";
+import { useGuestStore } from "../store/guestStore";
+import { syncGuestData } from "../hooks/useGuestSync";
 
 export function AuthLayout({ children }) {
   return (
@@ -60,9 +62,19 @@ export function Login() {
       const session = await login(data);
       queryClient.clear();
       setSession(session);
-      const next = search.get("next");
+
+      // Deduplicated guest sync: awaits in-flight sync so database has committed before navigation
+      await syncGuestData(queryClient);
+
+      // Sanitize next return URL to prevent open-redirect vulnerabilities
+      const rawNext = search.get("next");
+      const safeNext =
+        rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.includes(":")
+          ? rawNext
+          : null;
+
       navigate(
-        next ||
+        safeNext ||
           (session.user?.role === "admin"
             ? "/admin"
             : session.user?.role === "vendor"

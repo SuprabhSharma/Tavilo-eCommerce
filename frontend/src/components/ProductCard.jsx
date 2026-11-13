@@ -1,41 +1,50 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ProductPrice from "./ProductPrice";
 import { Check, Heart, ShoppingBag } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   addCartItem,
   addWishlist,
-  getCart,
-  getWishlist,
   removeCartItem,
   removeWishlist,
 } from "../api/shop";
 import { productImage } from "../lib/formatters";
 import { useAuthStore } from "../store/authStore";
+import { useGuestStore } from "../store/guestStore";
 import { getErrorMessage } from "../lib/errors";
 import { Rating } from "./ui";
+import { useProductActionState } from "./ProductActionState";
 
-export default function ProductCard({ product }) {
+function ProductCard({ product }) {
   const isLoggedIn = Boolean(useAuthStore((state) => state.accessToken));
-  const navigate = useNavigate();
-  const location = useLocation();
   const [message, setMessage] = useState("");
-  const [cartAdded, setCartAdded] = useState(false);
   const queryClient = useQueryClient();
-  const cart = useQuery({
-    queryKey: ["cart"],
-    queryFn: getCart,
-    enabled: isLoggedIn,
-  });
-  const wishlist = useQuery({
-    queryKey: ["wishlist"],
-    queryFn: getWishlist,
-    enabled: isLoggedIn,
-  });
-  const saved = Boolean(
-    wishlist.data?.items?.some((item) => item.product_id === product.uid),
+  const { cartIds, wishlistIds } = useProductActionState();
+
+  // ── Guest Store State ──────────────────────────────────────────────────────
+  const isGuestInCart = useGuestStore((state) =>
+    state.cart.items.some((i) => i.productId === product.uid),
   );
+  const isGuestSaved = useGuestStore((state) =>
+    state.wishlist.items.some((i) => i.productId === product.uid),
+  );
+  const addToGuestCart = useGuestStore((state) => state.addToGuestCart);
+  const removeFromGuestCart = useGuestStore((state) => state.removeFromGuestCart);
+  const addToGuestWishlist = useGuestStore((state) => state.addToGuestWishlist);
+  const removeFromGuestWishlist = useGuestStore(
+    (state) => state.removeFromGuestWishlist,
+  );
+
+  // ── Authenticated Server State ─────────────────────────────────────────────
+  const saved = isLoggedIn
+    ? wishlistIds.has(product.uid)
+    : isGuestSaved;
+
+  const inCart = isLoggedIn
+    ? cartIds.has(product.uid)
+    : isGuestInCart;
+
   const wishlistMutation = useMutation({
     mutationFn: () =>
       saved ? removeWishlist(product.uid) : addWishlist(product.uid),
@@ -49,46 +58,57 @@ export default function ProductCard({ product }) {
     },
     onError: (error) => setMessage(getErrorMessage(error)),
   });
+
   const toggleWishlist = () => {
+    setMessage("");
     if (!isLoggedIn) {
-      navigate(`/account?next=${encodeURIComponent(location.pathname)}`);
+      if (isGuestSaved) {
+        removeFromGuestWishlist(product.uid);
+        setMessage("Product removed from wishlist");
+      } else {
+        addToGuestWishlist(product.uid);
+        setMessage("Product added to wishlist");
+      }
       return;
     }
-    setMessage("");
     wishlistMutation.mutate(saved);
   };
+
   const cartMutation = useMutation({
     mutationFn: () => addCartItem(product.uid),
     onSuccess: () => {
-      setCartAdded(true);
       setMessage("Product added to cart");
       queryClient.invalidateQueries({ queryKey: ["cart"] });
     },
     onError: (error) => setMessage(getErrorMessage(error)),
   });
+
   const removeCartMutation = useMutation({
     mutationFn: async () => {
-      const latestCart = isLoggedIn ? await getCart() : null;
-      const item = latestCart?.items?.find(
+      const cached = queryClient.getQueryData(["cart"]);
+      const item = cached?.items?.find(
         (cartItem) => cartItem.product_id === product.uid,
       );
       if (!item) return Promise.resolve();
       return removeCartItem(item.uid);
     },
     onSuccess: () => {
-      setCartAdded(false);
       setMessage("Product removed from cart");
       queryClient.invalidateQueries({ queryKey: ["cart"] });
     },
     onError: (error) => setMessage(getErrorMessage(error)),
   });
-  const inCart =
-    cartAdded ||
-    Boolean(cart.data?.items?.some((item) => item.product_id === product.uid));
+
   const addToCart = () => {
     setMessage("");
     if (!isLoggedIn) {
-      navigate(`/account?next=${encodeURIComponent(location.pathname)}`);
+      if (isGuestInCart) {
+        removeFromGuestCart(product.uid);
+        setMessage("Product removed from cart");
+      } else {
+        addToGuestCart(product.uid, 1);
+        setMessage("Product added to cart");
+      }
       return;
     }
     if (inCart) {
@@ -108,12 +128,12 @@ export default function ProductCard({ product }) {
           src={productImage(product)}
           alt={product.title}
           width="640"
-          height="640"
+          height="610"
           loading="lazy"
           decoding="async"
           className="aspect-[1.05] w-full object-cover transition duration-300 group-hover:scale-105"
         />
-        {product.stock === 0 && (
+        {!product.is_available && (
           <span className="absolute left-2 top-2 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">
             Sold out
           </span>
@@ -142,7 +162,7 @@ export default function ProductCard({ product }) {
               title={inCart ? "Remove from cart" : "Add to cart"}
               onClick={addToCart}
               disabled={
-                (!product.stock && !inCart) ||
+                (!product.is_available && !inCart) ||
                 cartMutation.isPending ||
                 removeCartMutation.isPending
               }
@@ -183,3 +203,5 @@ export default function ProductCard({ product }) {
     </article>
   );
 }
+
+export default memo(ProductCard);

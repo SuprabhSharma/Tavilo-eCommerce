@@ -7,7 +7,9 @@ import { BackLink } from "../components/Page";
 import { Button, EmptyState, Input, Select } from "../components/ui";
 import { formatCurrency } from "../lib/formatters";
 import { getErrorMessage } from "../lib/errors";
+import { setLastAddressUid } from "../lib/addressStorage";
 import { useAuthStore } from "../store/authStore";
+import { Check, Info } from "lucide-react";
 
 const PHONE_REGEX = /^[6-9]\d{9}$/;
 const PINCODE_REGEX = /^\d{6}$/;
@@ -48,6 +50,7 @@ export default function Checkout() {
           : [...withoutDuplicate, data];
       });
       addForm.reset({ payment_method: "cod", address_id: data.uid });
+      setLastAddressUid(data.uid);
       setSelectedAddressId(data.uid);
       setValue("address_id", data.uid, { shouldValidate: true });
       setShowAddress(false);
@@ -195,6 +198,14 @@ export default function Checkout() {
                     },
                   })}
                 />
+                <label className="sm:col-span-2 flex items-center gap-2 cursor-pointer text-sm font-medium text-ink select-none py-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-line accent-brand-600 cursor-pointer"
+                    {...register("is_default")}
+                  />
+                  Make this my default address
+                </label>
                 <Button
                   loading={addressMutation.isPending}
                   className="sm:col-span-2"
@@ -212,34 +223,67 @@ export default function Checkout() {
               </form>
             )}
             {!showAddress && (
-              <div className="mt-5 space-y-2">
-                {list.map((address) => (
-                  <label
-                    key={address.uid}
-                    className="flex cursor-pointer gap-3 rounded-lg border border-line p-3 has-[:checked]:border-brand-500 has-[:checked]:bg-brand-50"
-                  >
-                    <input
-                      type="radio"
-                      value={address.uid}
-                      {...register("address_id", { required: true })}
-                      checked={selectedAddressId === address.uid}
-                      onChange={() => {
-                        setSelectedAddressId(address.uid);
-                        setValue("address_id", address.uid, {
-                          shouldValidate: true,
-                        });
-                      }}
-                    />
-                    <span className="text-sm">
-                      <b>{address.name}</b>
-                      <br />
-                      {address.line1}, {address.city}, {address.state} —{" "}
-                      {address.pincode}
-                      <br />
-                      <span className="text-muted">{address.phone}</span>
-                    </span>
-                  </label>
-                ))}
+              <div className="mt-5 space-y-3">
+                {list.map((address) => {
+                  const isSelected = selectedAddressId === address.uid;
+                  return (
+                    <label
+                      key={address.uid}
+                      className={[
+                        "flex cursor-pointer gap-3 rounded-xl border p-4 transition-all duration-200",
+                        isSelected
+                          ? "border-brand-500 bg-brand-50/25 ring-1 ring-brand-300 shadow-sm"
+                          : "border-line bg-white hover:border-slate-300",
+                      ].join(" ")}
+                    >
+                      <input
+                        type="radio"
+                        value={address.uid}
+                        {...register("address_id", { required: true })}
+                        checked={isSelected}
+                        onChange={() => {
+                          setSelectedAddressId(address.uid);
+                          setValue("address_id", address.uid, {
+                            shouldValidate: true,
+                          });
+                        }}
+                        className="mt-1 h-4 w-4 accent-brand-600 cursor-pointer"
+                      />
+                      <div className="min-w-0 flex-1 text-sm leading-relaxed">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-ink text-base">
+                            {address.name}
+                          </span>
+                          <span className="text-sm font-medium text-slate-600">
+                            {address.phone}
+                          </span>
+                          {address.is_default && (
+                            <span className="inline-flex items-center rounded bg-brand-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-700 border border-brand-200">
+                              DEFAULT
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-slate-600 leading-relaxed">
+                          {address.line1}
+                          {address.line2 && `, ${address.line2}`}
+                        </p>
+                        <p className="text-slate-600 leading-relaxed">
+                          {address.city}, {address.state} &mdash;{" "}
+                          <span className="font-semibold text-ink">
+                            {address.pincode}
+                          </span>
+                        </p>
+                        {isSelected && (
+                          <div className="mt-2.5 flex items-center justify-between border-t border-brand-100 pt-2">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700">
+                              <Check size={13} className="text-brand-600" /> Deliver to this address
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
                 {!list.length && (
                   <p className="text-sm text-muted">
                     Add a delivery address to continue.
@@ -304,12 +348,26 @@ export default function Checkout() {
               Place order becomes available after you add a delivery address.
             </p>
           )}
+
+          {/* ── Cancellation policy notice ── */}
+          <div className="mt-5 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-900">
+            <Info size={15} className="mt-0.5 shrink-0 text-amber-600" />
+            <p className="text-xs leading-relaxed">
+              <span className="font-semibold">Cancellation window:</span> You can cancel this order until a seller ships it.
+            </p>
+          </div>
+
           <Button
-            className="mt-5 w-full"
+            className="mt-4 w-full"
             loading={order.isPending}
             disabled={!list.length}
             title={!list.length ? "Add a delivery address first" : undefined}
-            onClick={handleSubmit((data) => order.mutate(data))}
+            onClick={handleSubmit((data) =>
+              order.mutate({
+                payload: data,
+                idempotencyKey: crypto.randomUUID(),
+              }),
+            )}
           >
             Place order
           </Button>

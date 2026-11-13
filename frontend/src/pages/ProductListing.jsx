@@ -34,6 +34,8 @@ export default function ProductListing() {
   const categories = useQuery({
     queryKey: ["categories"],
     queryFn: listCategories,
+    staleTime: 24 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
   });
   const update = (key, value) => {
     const next = new URLSearchParams(params);

@@ -1,42 +1,158 @@
-import { Heart, ShoppingBag, Trash2 } from "lucide-react";
+import { useMemo } from "react";
+import { Check, Heart, ShoppingBag, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { addCartItem, getWishlist, removeWishlist } from "../api/shop";
+import {
+  addCartItem,
+  getCart,
+  getProductsByIds,
+  getWishlist,
+  removeWishlist,
+} from "../api/shop";
 import { Button, EmptyState, ErrorState, Skeleton } from "../components/ui";
 import ProductPrice from "../components/ProductPrice";
 import { productImage } from "../lib/formatters";
+import { useAuthStore } from "../store/authStore";
+import { useGuestStore } from "../store/guestStore";
 
 export default function Wishlist() {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["wishlist"], queryFn: getWishlist });
-  const remove = useMutation({
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const isReady = useAuthStore((state) => state.isReady);
+  const loggedIn = Boolean(accessToken);
+
+  // ── Authenticated Wishlist & Cart ──────────────────────────────────────────
+  const authQuery = useQuery({
+    queryKey: ["wishlist"],
+    queryFn: getWishlist,
+    enabled: loggedIn,
+  });
+
+  const authCartQuery = useQuery({
+    queryKey: ["cart"],
+    queryFn: getCart,
+    enabled: loggedIn,
+  });
+
+  const authRemoveMutation = useMutation({
     mutationFn: removeWishlist,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["wishlist"] }),
   });
-  const addToCart = useMutation({
+
+  const authAddToCartMutation = useMutation({
     mutationFn: ({ productId }) => addCartItem(productId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cart"] }),
   });
-  if (query.isLoading)
+
+  // ── Guest Wishlist & Cart ─────────────────────────────────────────────────
+  const guestWishlistItems = useGuestStore((state) => state.wishlist.items);
+  const guestCartItems = useGuestStore((state) => state.cart.items);
+  const removeFromGuestWishlist = useGuestStore(
+    (state) => state.removeFromGuestWishlist,
+  );
+  const addToGuestCart = useGuestStore((state) => state.addToGuestCart);
+
+  const authCartIds = useMemo(
+    () => new Set((authCartQuery.data?.items || []).map((i) => i.product_id)),
+    [authCartQuery.data],
+  );
+
+  const guestProductIds = useMemo(
+    () => guestWishlistItems.map((i) => i.productId),
+    [guestWishlistItems],
+  );
+
+  const guestProductsQuery = useQuery({
+    queryKey: ["guest-wishlist-products", guestProductIds],
+    queryFn: () => getProductsByIds(guestProductIds),
+    enabled: !loggedIn && guestProductIds.length > 0,
+  });
+
+  // Construct items
+  const items = useMemo(() => {
+    if (loggedIn) {
+      return (authQuery.data?.items || []).map((item) => ({
+        uid: item.uid,
+        product_id: item.product_id,
+        product_title: item.product_title,
+        product_slug: item.product_slug,
+        created_at: item.created_at,
+        product: item.product,
+      }));
+    }
+
+    const productMap = new Map();
+    for (const p of guestProductsQuery.data?.items || []) {
+      productMap.set(p.uid, p);
+    }
+
+    return guestWishlistItems
+      .map((gItem) => {
+        const product = productMap.get(gItem.productId);
+        if (!product) return null;
+        return {
+          uid: gItem.productId,
+          product_id: gItem.productId,
+          product_title: product.title,
+          product_slug: product.slug,
+          created_at: gItem.addedAt,
+          product,
+        };
+      })
+      .filter(Boolean);
+  }, [
+    loggedIn,
+    authQuery.data?.items,
+    guestWishlistItems,
+    guestProductsQuery.data?.items,
+  ]);
+
+  const isLoading = !isReady || (loggedIn
+    ? authQuery.isLoading
+    : guestProductIds.length > 0 && guestProductsQuery.isLoading);
+
+  const isError = loggedIn ? authQuery.isError : guestProductsQuery.isError;
+  const refetch = loggedIn ? authQuery.refetch : guestProductsQuery.refetch;
+
+  if (isLoading)
     return (
       <div className="mx-auto max-w-5xl px-4 py-8">
         <Skeleton className="h-8 w-40" />
         <Skeleton className="mt-8 h-40" />
       </div>
     );
-  if (query.isError)
+
+  if (isError)
     return (
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <ErrorState onRetry={query.refetch} />
+        <ErrorState onRetry={refetch} />
       </div>
     );
+
+  const handleRemove = (productId) => {
+    if (loggedIn) {
+      authRemoveMutation.mutate(productId);
+    } else {
+      removeFromGuestWishlist(productId);
+    }
+  };
+
+  const handleAddToCart = (product) => {
+    if (loggedIn) {
+      authAddToCartMutation.mutate({ productId: product.uid });
+    } else {
+      addToGuestCart(product.uid, 1);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="flex items-center gap-3">
         <Heart className="text-brand-600" />
         <h1 className="text-2xl font-bold">Wishlist</h1>
       </div>
-      {!query.data.items.length ? (
+
+      {!items.length ? (
         <div className="mt-8">
           <EmptyState
             title="Your wishlist is empty"
@@ -50,7 +166,7 @@ export default function Wishlist() {
         </div>
       ) : (
         <div className="mt-7 divide-y divide-line rounded-card border border-line bg-white">
-          {query.data.items.map((item) => (
+          {items.map((item) => (
             <div
               key={item.uid}
               className="flex items-center gap-4 p-4"
@@ -62,7 +178,7 @@ export default function Wishlist() {
                 height="72"
                 className="h-[72px] w-[72px] shrink-0 rounded-lg bg-slate-100 object-cover"
               />
-              <Link to={`/p/${item.product_slug}`} className="min-w-0">
+              <Link to={`/p/${item.product_slug}`} className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold hover:text-brand-600">
                   {item.product_title}
                 </p>
@@ -77,20 +193,35 @@ export default function Wishlist() {
                 </p>
               </Link>
               <div className="ml-auto flex shrink-0 gap-2">
-                <button
-                  aria-label={`Add ${item.product_title} to cart`}
-                  onClick={() =>
-                    addToCart.mutate({ productId: item.product_id })
-                  }
-                  disabled={!item.product?.stock || addToCart.isPending}
-                  className="grid h-10 w-10 place-items-center rounded-lg text-brand-600 hover:bg-brand-50 disabled:opacity-40"
-                >
-                  <ShoppingBag size={17} />
-                </button>
+                {(() => {
+                  const inCart = loggedIn
+                    ? authCartIds.has(item.product_id)
+                    : guestCartItems.some((i) => i.productId === item.product_id);
+                  return (
+                    <button
+                      aria-label={inCart ? `${item.product_title} is in cart` : `Add ${item.product_title} to cart`}
+                      onClick={() => handleAddToCart(item.product)}
+                      disabled={
+                        !item.product?.is_available ||
+                        (loggedIn && authAddToCartMutation.isPending)
+                      }
+                      className={`grid h-10 w-10 place-items-center rounded-lg transition ${
+                        inCart
+                          ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                          : "text-brand-600 hover:bg-brand-50"
+                      } disabled:opacity-40`}
+                      title={inCart ? "In cart (click to add more)" : "Add to cart"}
+                    >
+                      {inCart ? <Check size={17} strokeWidth={2.5} /> : <ShoppingBag size={17} />}
+                    </button>
+                  );
+                })()}
                 <button
                   aria-label={`Remove ${item.product_title}`}
-                  onClick={() => remove.mutate(item.product_id)}
-                  className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-600"
+                  onClick={() => handleRemove(item.product_id)}
+                  disabled={loggedIn && authRemoveMutation.isPending}
+                  className="grid h-10 w-10 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                  title="Remove from wishlist"
                 >
                   <Trash2 size={17} />
                 </button>

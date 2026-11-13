@@ -7,9 +7,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.config import Config
 
+_engine_kwargs = {
+    "pool_pre_ping": True,
+}
+if not Config.DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs.update({
+        "pool_size": 20,
+        "max_overflow": 10,
+        "pool_recycle": 1800,
+        "pool_timeout": 30,
+    })
+
 async_engine = create_async_engine(
     url=Config.DATABASE_URL,
-    pool_pre_ping=True,
+    **_engine_kwargs,
 )
 async_session = async_sessionmaker(
     bind=async_engine,

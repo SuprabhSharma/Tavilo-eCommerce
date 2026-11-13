@@ -12,7 +12,6 @@
 :root { --brand-50: #e9fbfa; --brand-100: #c8f3f1; --brand-500: #20c7c0; --brand-600: #0bb5b0; --brand-700: #078d8a; --accent: #f5a623; --ink: #10284b; --muted: #64748b; --surface: #ffffff; --line: #dbe7ed; }
 * { box-sizing: border-box; }
 html { scroll-behavior: auto; }
-main > section { content-visibility: auto; contain-intrinsic-size: 0 480px; }
 body { margin: 0; min-width: 320px; background: #f6fbfc; font-family: Poppins, ui-sans-serif, system-ui, sans-serif; color: var(--ink); }
 button, input, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }

@@ -144,6 +144,14 @@ async def check_verification_rate(identifier: str) -> tuple[bool, int]:
     return await _consume("verification", identifier, VERIFICATION_POLICY)
 
 
+CATALOG_POLICY = RateLimitPolicy(window_seconds=60, max_attempts=120, lockout_seconds=60)
+
+
+async def check_catalog_rate(identifier: str) -> tuple[bool, int]:
+    """120 catalogue reads/min per IP — protects against scrapers."""
+    return await _consume("catalog", identifier, CATALOG_POLICY)
+
+
 async def clear_login_attempts(identifier: str) -> None:
     """Clear a successful login's bucket without exposing its identifier."""
     if _redis is None:

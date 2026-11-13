@@ -1,17 +1,27 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.auth.client_ip import get_client_ip
 from src.auth.dependencies import RoleChecker, get_verified_user
+from src.auth.rate_limit import check_catalog_rate
 from src.db.main import get_session
 from src.db.models import Product, ProductImage, User, Vendor
 from src.errors import InsufficientPermission, ProductNotFound, VendorNotFound
 
-from .schemas import ProductCreate, ProductListOut, ProductOut, ProductUpdate
+from .schemas import (
+    ProductCreate,
+    ProductListOut,
+    ProductOut,
+    ProductPublicOut,
+    ProductUpdate,
+    VendorProductListOut,
+    VendorProductSummaryOut,
+)
 from .service import ProductService
 from .image_storage import (
     IMAGE_URL_PREFIX,
@@ -25,6 +35,18 @@ from .image_storage import (
 
 product_router = APIRouter()
 service = ProductService()
+
+
+async def _catalog_rate_check(request: Request) -> None:
+    """120 requests/min per IP — blocks scrapers, keeps legit users unaffected."""
+    ip = get_client_ip(request)
+    allowed, retry_after = await check_catalog_rate(ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 async def get_approved_vendor(current_user: User = Depends(get_verified_user), session: AsyncSession = Depends(get_session)) -> Vendor:
@@ -45,35 +67,48 @@ async def get_approved_vendor(current_user: User = Depends(get_verified_user), s
 @product_router.get("", response_model=ProductListOut)
 async def list_products(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=50),
     category: str | None = Query(None),
     vendor: str | None = Query(None),
     q: str | None = Query(None, min_length=1, max_length=100),
+    ids: str | None = Query(None, description="Comma-separated product UUIDs"),
     min_price: Decimal | None = Query(None),
     max_price: Decimal | None = Query(None),
     in_stock: bool | None = Query(None),
     sort: str = Query("newest", pattern="^(newest|price_asc|price_desc|rating)$"),
+    response: Response = None,
     session: AsyncSession = Depends(get_session),
+    _rate: None = Depends(_catalog_rate_check),
 ):
-    return await service.get_all(
+    result = await service.get_all(
         session,
         page=page,
         page_size=page_size,
         category_slug=category,
         vendor_slug=vendor,
         query=q,
+        ids=ids,
         min_price=min_price,
         max_price=max_price,
         in_stock=in_stock,
         sort=sort,
     )
+    if response is not None:
+        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+    return result
 
 
-@product_router.get("/slug/{slug}", response_model=ProductOut)
-async def get_product(slug: str, session: AsyncSession = Depends(get_session)):
+@product_router.get("/slug/{slug}", response_model=ProductPublicOut)
+async def get_product(
+    slug: str,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    _rate: None = Depends(_catalog_rate_check),
+):
     product = await service.get_by_slug(slug, session)
     if not product:
         raise ProductNotFound()
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     return product
 
 
@@ -122,14 +157,23 @@ async def serve_product_image(
 
 # ── Vendor endpoints ──────────────────────────────────────────────────────────
 
-@product_router.get("/vendor/me", response_model=ProductListOut)
-async def vendor_list_products(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+@product_router.get("/vendor/me/summary", response_model=VendorProductSummaryOut)
+async def vendor_products_summary(
     vendor: Vendor = Depends(get_approved_vendor),
     session: AsyncSession = Depends(get_session),
 ):
-    payload = await service.get_vendor_products(vendor.uid, session, page=page, page_size=page_size)
+    return await service.get_vendor_summary(vendor.uid, session)
+
+
+@product_router.get("/vendor/me", response_model=VendorProductListOut)
+async def vendor_list_products(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    q: str | None = Query(None),
+    vendor: Vendor = Depends(get_approved_vendor),
+    session: AsyncSession = Depends(get_session),
+):
+    payload = await service.get_vendor_products(vendor.uid, session, page=page, page_size=page_size, query=q)
     for product in payload.items:
         for image in product.images:
             filename = get_image_filename(image.url)

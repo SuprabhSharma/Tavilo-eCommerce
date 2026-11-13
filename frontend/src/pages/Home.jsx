@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Truck, WalletCards } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -11,18 +12,12 @@ export default function Home() {
   const categories = useQuery({
     queryKey: ["categories"],
     queryFn: listCategories,
-  });
-  const trending = useQuery({
-    queryKey: ["products", { sort: "rating", page_size: 8 }],
-    queryFn: () => listProducts({ sort: "rating", page_size: 8 }),
+    staleTime: 24 * 60 * 60 * 1000, // categories change rarely
+    gcTime: 24 * 60 * 60 * 1000,
   });
   const allProducts = useQuery({
     queryKey: ["products", { page: 1, page_size: 8 }],
     queryFn: () => listProducts({ page: 1, page_size: 8 }),
-  });
-  const newest = useQuery({
-    queryKey: ["products", { sort: "newest", page_size: 8 }],
-    queryFn: () => listProducts({ sort: "newest", page_size: 8 }),
   });
   return (
     <div>
@@ -141,11 +136,17 @@ export default function Home() {
       </section>
       <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
         <SectionTitle title="Top rated" to="/products?sort=rating" />
-        <CatalogRow query={trending} />
+        <DeferredCatalogRow
+          queryKey={["products", { sort: "rating", page_size: 8 }]}
+          queryFn={() => listProducts({ sort: "rating", page_size: 8 })}
+        />
       </section>
       <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
         <SectionTitle title="New arrivals" to="/products?sort=newest" />
-        <CatalogRow query={newest} />
+        <DeferredCatalogRow
+          queryKey={["products", { sort: "newest", page_size: 8 }]}
+          queryFn={() => listProducts({ sort: "newest", page_size: 8 })}
+        />
       </section>
     </div>
   );
@@ -158,6 +159,46 @@ function CatalogRow({ query }) {
       {(query.data?.items || []).map((product) => (
         <ProductCard key={product.uid} product={product} />
       ))}
+    </div>
+  );
+}
+
+function DeferredCatalogRow({ queryKey, queryFn }) {
+  const sectionRef = useRef(null);
+  const [nearViewport, setNearViewport] = useState(false);
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section || typeof IntersectionObserver === "undefined") {
+      setNearViewport(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setNearViewport(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
+
+  const query = useQuery({
+    queryKey,
+    queryFn,
+    enabled: nearViewport,
+  });
+
+  return (
+    <div ref={sectionRef}>
+      {!nearViewport || query.isLoading ? (
+        <ProductGridSkeleton />
+      ) : (
+        <CatalogRow query={query} />
+      )}
     </div>
   );
 }

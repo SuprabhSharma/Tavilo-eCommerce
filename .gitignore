@@ -9,7 +9,8 @@ node_modules/
 dist/
 .DS_Store
 
-backend/tests/
+backend/tests/__pycache__/
+backend/tests/.pytest_cache/
 backend/uploads/
 .vscode/settings.json
 frontend/.env.development

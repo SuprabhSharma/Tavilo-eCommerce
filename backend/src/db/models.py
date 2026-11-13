@@ -330,6 +330,8 @@ class Product(SQLModel, table=True):
         Index("ix_products_category_id", "category_id"),
         Index("ix_products_status", "status"),
         Index("ix_products_price", "price"),
+        Index("ix_products_status_created_at", "status", "created_at"),
+        Index("ix_products_status_category_id", "status", "category_id"),
     )
 
     vendor: Optional[Vendor] = Relationship(
@@ -510,7 +512,7 @@ class Wishlist(SQLModel, table=True):
     uid: uuid.UUID = Field(
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
-    user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False)
+    user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False, index=True)
     product_id: uuid.UUID = Field(foreign_key="products.uid", nullable=False)
     created_at: datetime = Field(
         sa_column=Column(pg.TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -534,6 +536,51 @@ class Wishlist(SQLModel, table=True):
 
 
 # ---------------------------------------------------------------------------
+# GuestCartMergeReceipt
+# ---------------------------------------------------------------------------
+
+class GuestCartMergeReceipt(SQLModel, table=True):
+    """
+    Idempotency record for guest-to-authenticated cart merges.
+
+    A receipt is written (user_id, guest_cart_id) once after a successful
+    merge.  Any subsequent request with the same pair is detected here and
+    returns the existing cart state without re-applying quantities, preventing
+    duplicate accumulation caused by network retries.
+    """
+
+    __tablename__ = "guest_cart_merge_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "guest_cart_id", name="uq_guest_merge_user_guest_cart"
+        ),
+        Index("ix_gcmr_user_id", "user_id"),
+    )
+
+    uid: uuid.UUID = Field(
+        sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
+    )
+    user_id: uuid.UUID = Field(
+        foreign_key="users.uid",
+        nullable=False,
+    )
+    guest_cart_id: str = Field(
+        sa_column=Column(pg.VARCHAR(36), nullable=False)
+    )
+    conflicts_json: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+    )
+    merged_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(pg.TIMESTAMP(timezone=True), nullable=False, index=True),
+    )
+
+    def __repr__(self):
+        return f"<GuestCartMergeReceipt user_id={self.user_id} guest_cart_id={self.guest_cart_id}>"
+
+
+# ---------------------------------------------------------------------------
 # Address
 # ---------------------------------------------------------------------------
 
@@ -543,7 +590,7 @@ class Address(SQLModel, table=True):
     uid: uuid.UUID = Field(
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
-    user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False)
+    user_id: uuid.UUID = Field(foreign_key="users.uid", nullable=False, index=True)
     name: str = Field(sa_column=Column(pg.VARCHAR(120), nullable=False))
     phone: str = Field(sa_column=Column(pg.VARCHAR(20), nullable=False))
     line1: str = Field(sa_column=Column(pg.VARCHAR(200), nullable=False))
@@ -641,8 +688,8 @@ class SubOrder(SQLModel, table=True):
         default_factory=uuid.uuid4,
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
-    order_id: uuid.UUID = Field(foreign_key="orders.uid", nullable=False)
-    vendor_id: uuid.UUID = Field(foreign_key="vendors.uid", nullable=False)
+    order_id: uuid.UUID = Field(foreign_key="orders.uid", nullable=False, index=True)
+    vendor_id: uuid.UUID = Field(foreign_key="vendors.uid", nullable=False, index=True)
     subtotal: Decimal = Field(
         sa_column=Column(Numeric(12, 2), nullable=False)
     )
@@ -673,6 +720,10 @@ class SubOrder(SQLModel, table=True):
     @property
     def store_name(self) -> Optional[str]:
         return self.vendor.store_name if self.vendor else None
+
+    @property
+    def parent_order_status(self) -> Optional[str]:
+        return self.order.status if self.order else None
 
     def __repr__(self):
         return f"<SubOrder {self.uid} vendor={self.vendor_id}>"

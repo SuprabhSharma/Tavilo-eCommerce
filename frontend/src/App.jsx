@@ -4,6 +4,7 @@ import ShopLayout from "./components/Layout";
 import { Skeleton } from "./components/ui";
 import { useAuthStore } from "./store/authStore";
 import { api } from "./lib/apiClient";
+import { useGuestSync } from "./hooks/useGuestSync";
 
 // Remove the legacy client-side refresh token from older releases.
 if (typeof window !== "undefined") {
@@ -55,9 +56,17 @@ const AdminPortal = lazy(() => import("./pages/AdminPortal"));
 
 function Loading() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="mt-6 h-72 w-full" />
+    <div className="mx-auto max-w-7xl px-4 py-8" aria-busy="true" aria-label="Loading page">
+      <div className="mb-6 h-7 w-40 animate-pulse rounded-lg bg-slate-200" />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="overflow-hidden rounded-card border border-line bg-white p-2.5">
+            <div className="aspect-[1.05] w-full animate-pulse rounded-lg bg-slate-200" />
+            <div className="mt-3 h-4 w-3/4 animate-pulse rounded bg-slate-200" />
+            <div className="mt-2 h-4 w-1/2 animate-pulse rounded bg-slate-200" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -74,11 +83,11 @@ function RequestIndicator() {
       window.removeEventListener("tavilo:request-state", handleRequestState);
   }, []);
 
-  if (!active) return null;
-
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 bg-brand-100"
+      className={`pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 bg-brand-100 transition-opacity duration-150 ${
+        active ? "opacity-100" : "opacity-0"
+      }`}
       role="status"
       aria-live="polite"
       aria-label="Processing request"
@@ -114,9 +123,17 @@ function RoleRoute({ role, children }) {
     );
   return children;
 }
-export default function App() {
+
+/**
+ * AppInner is the application shell. It is rendered inside the router so hooks
+ * that need routing context (like useGuestSync) work correctly.
+ */
+function AppInner() {
   const setSession = useAuthStore((state) => state.setSession);
   const setReady = useAuthStore((state) => state.setReady);
+
+  // Guest sync hook — handles merge after session bootstrap and login.
+  useGuestSync();
 
   useEffect(() => {
     bootstrapAuth()
@@ -130,33 +147,22 @@ export default function App() {
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route element={<ShopLayout />}>
+            {/* ── Public routes ─────────────────────────────────────────── */}
             <Route path="/" element={<Home />} />
             <Route path="/products" element={<ProductListing />} />
             <Route path="/c/:category" element={<ProductListing />} />
             <Route path="/search" element={<ProductListing />} />
             <Route path="/p/:slug" element={<ProductDetail />} />
             <Route path="/store/:slug" element={<VendorStore />} />
-            <Route
-              path="/cart"
-              element={
-                <ProtectedRoute>
-                  <Cart />
-                </ProtectedRoute>
-              }
-            />
+            {/* Cart and Wishlist are public — guests use localStorage */}
+            <Route path="/cart" element={<Cart />} />
+            <Route path="/wishlist" element={<Wishlist />} />
+            {/* ── Authenticated routes ───────────────────────────────────── */}
             <Route
               path="/checkout"
               element={
                 <ProtectedRoute>
                   <Checkout />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/wishlist"
-              element={
-                <ProtectedRoute>
-                  <Wishlist />
                 </ProtectedRoute>
               }
             />
@@ -224,4 +230,8 @@ export default function App() {
       </Suspense>
     </>
   );
+}
+
+export default function App() {
+  return <AppInner />;
 }

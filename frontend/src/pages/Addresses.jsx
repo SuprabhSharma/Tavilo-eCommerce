@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Check,
   MapPin,
   PenLine,
   Plus,
@@ -95,7 +94,7 @@ function AddressForm({ defaultValues, onSubmit, onCancel, isPending }) {
           className="h-4 w-4 rounded border-line accent-brand-600 cursor-pointer"
           {...register("is_default")}
         />
-        Remember this address for future orders
+        Make this my default address
       </label>
       <div className="sm:col-span-2 flex gap-3 pt-2">
         <Button type="submit" loading={isPending} className="flex-1">
@@ -116,7 +115,7 @@ function AddressForm({ defaultValues, onSubmit, onCancel, isPending }) {
   );
 }
 
-function AddressCard({
+const AddressCard = memo(function AddressCard({
   address,
   onEdit,
   onDelete,
@@ -131,56 +130,46 @@ function AddressCard({
       className={[
         "relative rounded-xl border bg-white p-4 transition-all duration-200",
         isDefault
-          ? "border-brand-500 ring-1 ring-brand-300 shadow-sm"
+          ? "border-brand-500 bg-brand-50/15 ring-1 ring-brand-300 shadow-sm"
           : "border-line hover:border-slate-300",
       ].join(" ")}
     >
       <div className="flex items-start gap-3">
         <label
           className="mt-0.5 cursor-pointer flex items-center justify-center p-0.5"
-          title={isDefault ? "Remembered address" : "Click to remember this address"}
+          title={isDefault ? "Primary default address for shopping" : "Set as default address"}
         >
           <input
             type="radio"
-            name="remembered_address_selector"
+            name="default_address_selector"
             checked={isDefault}
             onChange={() => onSetDefault(address.uid)}
             disabled={isSettingDefault || isDefault}
+            aria-label={isDefault ? "Default delivery address" : "Set as default address"}
             className="h-4 w-4 accent-brand-600 cursor-pointer"
           />
         </label>
         <div className="min-w-0 flex-1 text-sm leading-relaxed">
-          <div className="flex items-center gap-2">
-            <p className="font-semibold text-ink">{address.name}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-ink text-base">{address.name}</p>
+            <span className="text-sm font-medium text-slate-600">{address.phone}</span>
             {isDefault && (
-              <span className="inline-flex items-center gap-1 text-xs text-brand-700 font-medium">
-                <Check size={12} className="text-brand-600" /> Remembered
+              <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-brand-700 border border-brand-200">
+                DEFAULT
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-muted">
+          <p className="mt-1 text-slate-600 leading-relaxed">
             {address.line1}
             {address.line2 && `, ${address.line2}`}
           </p>
-          <p className="text-muted">
-            {address.city}, {address.state} &mdash; {address.pincode}
+          <p className="text-slate-600 leading-relaxed">
+            {address.city}, {address.state} &mdash;{" "}
+            <span className="font-semibold text-ink">{address.pincode}</span>
           </p>
-          <p className="mt-0.5 text-xs text-muted">{address.phone}</p>
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-2.5">
-        {isDefault ? (
-          <span className="text-xs text-muted">Primary address</span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onSetDefault(address.uid)}
-            disabled={isSettingDefault}
-            className="text-xs font-medium text-muted hover:text-brand-600 transition-colors disabled:opacity-50"
-          >
-            Remember this address
-          </button>
-        )}
+      <div className="mt-3.5 flex items-center justify-end border-t border-line/60 pt-2.5">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -201,7 +190,7 @@ function AddressCard({
       </div>
     </div>
   );
-}
+});
 
 function Collapse({ open, children }) {
   return (
@@ -338,9 +327,25 @@ export default function Addresses() {
 
   const setDefaultMut = useMutation({
     mutationFn: setDefaultAddress,
-    onSuccess: (data) => {
+    onMutate: async (targetUid) => {
+      await queryClient.cancelQueries({ queryKey: ["addresses"] });
+      const previousAddresses = queryClient.getQueryData(["addresses"]);
+      queryClient.setQueryData(["addresses"], (old = []) =>
+        old.map((item) => ({
+          ...item,
+          is_default: item.uid === targetUid,
+        }))
+      );
+      setLastAddressUid(targetUid);
+      return { previousAddresses };
+    },
+    onError: (_err, _targetUid, context) => {
+      if (context?.previousAddresses) {
+        queryClient.setQueryData(["addresses"], context.previousAddresses);
+      }
+    },
+    onSettled: () => {
       invalidate();
-      setLastAddressUid(data.uid);
     },
   });
 
@@ -350,18 +355,27 @@ export default function Addresses() {
     }
   }, [showAdd, editingAddress]);
 
-  const openAdd = () => {
+  const openAdd = useCallback(() => {
     setEditingAddress(null);
     setShowAdd(true);
-  };
-  const openEdit = (addr) => {
+  }, []);
+  const openEdit = useCallback((addr) => {
     setShowAdd(false);
     setEditingAddress(addr);
-  };
-  const closeForm = () => {
+  }, []);
+  const closeForm = useCallback(() => {
     setShowAdd(false);
     setEditingAddress(null);
-  };
+  }, []);
+  const handleSetDefault = useCallback(
+    (uid) => {
+      setDefaultMut.mutate(uid);
+    },
+    [setDefaultMut],
+  );
+  const handleDeletePrompt = useCallback((uid) => {
+    setDeletingId(uid);
+  }, []);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
@@ -442,8 +456,8 @@ export default function Addresses() {
               <AddressCard
                 address={item}
                 onEdit={openEdit}
-                onDelete={setDeletingId}
-                onSetDefault={setDefaultMut.mutate}
+                onDelete={handleDeletePrompt}
+                onSetDefault={handleSetDefault}
                 isDeleting={deleteMut.isPending && deletingId === item.uid}
                 isSettingDefault={setDefaultMut.isPending}
               />

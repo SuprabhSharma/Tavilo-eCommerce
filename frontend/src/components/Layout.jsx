@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import { brand } from "../config/brand";
 import { useAuthStore } from "../store/authStore";
+import { useGuestStore } from "../store/guestStore";
 import { api } from "../lib/apiClient";
-import { getCart } from "../api/shop";
+import { getCart, getWishlist } from "../api/shop";
+import { ProductActionStateProvider } from "./ProductActionState";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
@@ -78,10 +80,18 @@ export default function ShopLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const logout = useAuthStore((state) => state.logout);
   const isAuthenticated = Boolean(accessToken && user);
-  const cart = useQuery({
+  const { data: authCartCount = 0 } = useQuery({
     queryKey: ["cart"],
     queryFn: getCart,
     enabled: isAuthenticated,
+    select: (data) =>
+      data?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0,
+  });
+  const { data: authWishlistCount = 0 } = useQuery({
+    queryKey: ["wishlist"],
+    queryFn: getWishlist,
+    enabled: isAuthenticated,
+    select: (data) => data?.total ?? data?.items?.length ?? 0,
   });
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -104,21 +114,24 @@ export default function ShopLayout() {
     logout();
     navigate("/");
   };
-  const count = isAuthenticated
-    ? cart.data?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0
-    : 0;
+  const guestCount = useGuestStore((state) =>
+    state.cart.items.reduce((sum, item) => sum + item.quantity, 0),
+  );
+  const count = isAuthenticated ? authCartCount : guestCount;
+  const guestWishlistCount = useGuestStore((state) => state.wishlist.items.length);
+  const wishlistCount = isAuthenticated ? authWishlistCount : guestWishlistCount;
   return (
     <div className="min-h-screen bg-slate-50 pb-20 text-ink md:pb-0">
       <header className="sticky top-0 z-30 border-b border-line bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
           <button
             aria-label="Open menu"
             onClick={() => setMenuOpen(true)}
-            className="grid h-11 w-11 place-items-center rounded-lg text-ink hover:bg-slate-100 md:hidden"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-ink hover:bg-slate-100 md:hidden"
           >
-            <Menu size={21} />
+            <Menu size={20} />
           </button>
-          <Link to="/" className="flex w-28 shrink-0 items-center sm:w-32">
+          <Link to="/" className="flex w-24 shrink-0 items-center sm:w-32">
             <img
               src={brand.logo}
               alt={brand.logoAlt}
@@ -128,18 +141,20 @@ export default function ShopLayout() {
           </Link>
           <form
             onSubmit={submitSearch}
-            className="ml-auto flex max-w-xl flex-1 items-center rounded-lg bg-slate-100 px-3 focus-within:ring-2 focus-within:ring-brand-100"
+            className="flex min-w-0 flex-1 items-center rounded-lg bg-slate-100 px-2.5 sm:px-3 focus-within:ring-2 focus-within:ring-brand-100"
           >
-            <Search size={18} className="shrink-0 text-muted" />
+            <Search size={16} className="shrink-0 text-muted" />
             <input
               aria-label="Search products"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search for products, brands and more"
-              className="h-11 w-full bg-transparent px-2 text-sm outline-none placeholder:text-muted"
+              placeholder="Search products..."
+              className="h-10 w-full min-w-0 bg-transparent px-2 text-xs sm:text-sm outline-none placeholder:text-muted"
             />
           </form>
-          <nav className="hidden items-center gap-2 md:flex">
+
+          {/* Desktop-only Auth (Account / Sign In / Log Out) */}
+          <div className="hidden items-center gap-1.5 md:flex">
             {isAuthenticated ? (
               <>
                 <NavLink
@@ -160,23 +175,40 @@ export default function ShopLayout() {
             ) : (
               <Link
                 to="/login"
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+                className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
               >
                 Sign in
               </Link>
             )}
+          </div>
+
+          {/* Desktop-only Wishlist & Cart icons: On mobile, these are already in the bottom navigation bar */}
+          <div className="hidden items-center gap-0.5 sm:gap-1 md:flex">
+            <Link
+              to="/wishlist"
+              aria-label="Wishlist"
+              className="relative grid h-10 w-10 place-items-center rounded-lg text-ink hover:bg-slate-100"
+            >
+              <Heart size={20} className={wishlistCount > 0 ? "text-brand-600" : "text-ink"} />
+              {wishlistCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
+                  {wishlistCount}
+                </span>
+              )}
+            </Link>
             <Link
               to="/cart"
-              className="relative grid h-11 w-11 place-items-center rounded-lg hover:bg-slate-100"
+              aria-label="Cart"
+              className="relative grid h-10 w-10 place-items-center rounded-lg text-ink hover:bg-slate-100"
             >
               <ShoppingBag size={20} />
               {count > 0 && (
-                <span className="absolute right-0 top-0 grid h-5 min-w-5 place-items-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
+                <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
                   {count}
                 </span>
               )}
             </Link>
-          </nav>
+          </div>
         </div>
         <div className="hidden border-t border-line md:block">
           <div className="mx-auto flex h-11 max-w-7xl items-center gap-6 px-4 text-sm text-muted sm:px-6 lg:px-8">
@@ -286,6 +318,11 @@ export default function ShopLayout() {
                         {count}
                       </span>
                     )}
+                    {to === "/wishlist" && wishlistCount > 0 && (
+                      <span className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
+                        {wishlistCount}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -315,7 +352,9 @@ export default function ShopLayout() {
         </div>
       )}
       <main className="min-w-0 overflow-x-clip">
-        <Outlet />
+        <ProductActionStateProvider>
+          <Outlet />
+        </ProductActionStateProvider>
       </main>
       <footer className="border-t border-line bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-center text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left lg:px-8">
@@ -348,6 +387,11 @@ export default function ShopLayout() {
             {to === "/cart" && count > 0 && (
               <span className="absolute right-1 top-[-4px] grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] text-white">
                 {count}
+              </span>
+            )}
+            {to === "/wishlist" && wishlistCount > 0 && (
+              <span className="absolute right-1 top-[-4px] grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] text-white">
+                {wishlistCount}
               </span>
             )}
           </NavLink>

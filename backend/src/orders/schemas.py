@@ -38,6 +38,9 @@ class SubOrderOut(BaseModel):
     store_name: str | None = None
     subtotal: Decimal
     status: str
+    # Timestamps let the UI render "Shipped on Nov 5" / "Delivered on Nov 6" per shipment
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     items: list[OrderItemOut]
     parent_order_status: str | None = None
 
@@ -92,4 +95,4 @@ class OrderOut(BaseModel):
 
 
 class SubOrderStatusUpdate(BaseModel):
-    status: str  # confirmed | shipped | delivered | cancelled
+    status: str  # placed | confirmed | shipped | delivered | cancelled

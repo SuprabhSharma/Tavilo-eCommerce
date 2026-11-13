@@ -38,11 +38,14 @@ export default function ProductGallery({
   }, [galleryImages.length, onIndexChange]);
 
   useEffect(() => {
-    thumbnailRefs.current[activeIndex]?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "nearest",
+    const frame = requestAnimationFrame(() => {
+      thumbnailRefs.current[activeIndex]?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
     });
+    return () => cancelAnimationFrame(frame);
   }, [activeIndex]);
 
   useEffect(() => {

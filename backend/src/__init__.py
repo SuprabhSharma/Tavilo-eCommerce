@@ -2,12 +2,14 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from src.addresses.routes import address_router
 from src.admin.routes import admin_router
 from src.auth.routers import auth_router
 from src.cart.routes import cart_router
+from src.cart.merge_routes import merge_router as cart_merge_router
 from src.categories.routes import category_router
 from src.config import Config, configure_application_logging
 from src.db.main import async_engine, check_db_connection, init_db
@@ -64,6 +66,7 @@ app = FastAPI(
     contact={"email": "sharmasuprabh2608@gmail.com"},
 )
 PRODUCT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_api_route(
     "/media/products/{filename}",
     serve_product_image,
@@ -102,6 +105,7 @@ app.include_router(category_router, prefix=f"{API_PREFIX}/categories", tags=["ca
 app.include_router(product_router,  prefix=f"{API_PREFIX}/products",   tags=["products"])
 app.include_router(vendor_router,   prefix=f"{API_PREFIX}/vendors",    tags=["vendors"])
 app.include_router(cart_router,     prefix=f"{API_PREFIX}/cart",       tags=["cart"])
+app.include_router(cart_merge_router, prefix=f"{API_PREFIX}/cart",     tags=["cart"])
 app.include_router(wishlist_router, prefix=f"{API_PREFIX}/wishlist",   tags=["wishlist"])
 app.include_router(address_router,  prefix=f"{API_PREFIX}/addresses",  tags=["addresses"])
 app.include_router(order_router,    prefix=f"{API_PREFIX}/orders",     tags=["orders"])
