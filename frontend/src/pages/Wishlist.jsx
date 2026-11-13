@@ -12,6 +12,7 @@ import {
 import { Button, EmptyState, ErrorState, Skeleton } from "../components/ui";
 import ProductPrice from "../components/ProductPrice";
 import { productImage } from "../lib/formatters";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 
@@ -173,9 +174,20 @@ export default function Wishlist() {
             >
               <img
                 src={productImage(item.product)}
-                alt=""
+                alt={item.product_title || ""}
                 width="72"
                 height="72"
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  if (!e.currentTarget.dataset.errored) {
+                    e.currentTarget.dataset.errored = "1";
+                    e.currentTarget.src = generateProductPlaceholderSvg(
+                      item.product_slug || item.product_id || "wishlist-item",
+                      item.product_title,
+                    );
+                  }
+                }}
                 className="h-[72px] w-[72px] shrink-0 rounded-lg bg-slate-100 object-cover"
               />
               <Link to={`/p/${item.product_slug}`} className="min-w-0 flex-1">

@@ -1,13 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 
 const SWIPE_DISTANCE = 48;
 
-function normaliseImages(images, fallback) {
+/** Returns a local SVG data-URI — zero network, zero latency, always visible. */
+function buildFallback(seed, title) {
+  return generateProductPlaceholderSvg(seed || "product", title || "");
+}
+
+function normaliseImages(images, fallback, alt) {
   const source = (images || [])
     .map((image) => (typeof image === "string" ? { url: image } : image))
-    .filter((image) => image?.url);
-  return source.length ? source : [{ url: fallback }];
+    .filter((image) => image?.url)
+    .map((image) => {
+      // If image URL is an unreliable third-party placeholder like picsum,
+      // map to instant local SVG to prevent blocking or slow network requests.
+      if (image.url.includes("picsum.photos")) {
+        return {
+          ...image,
+          url: buildFallback(image.uid || alt || "product", alt),
+        };
+      }
+      return image;
+    });
+  return source.length ? source : [{ url: fallback || buildFallback("product", alt) }];
 }
 
 /** Accessible, touch-friendly product image gallery. */
@@ -20,7 +37,14 @@ export default function ProductGallery({
   className = "",
   showLightbox = false,
 }) {
-  const galleryImages = normaliseImages(images, fallback);
+  // Memoize so the array reference is stable across parent re-renders when
+  // the images prop itself hasn't changed — prevents unnecessary child work.
+  const galleryImages = useMemo(
+    () => normaliseImages(images, fallback, alt),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(images), fallback, alt],
+  );
+
   const [activeIndex, setActiveIndex] = useState(() =>
     Math.min(Math.max(initialIndex, 0), galleryImages.length - 1),
   );
@@ -29,23 +53,32 @@ export default function ProductGallery({
   const pointerStart = useRef(null);
   const suppressClick = useRef(false);
 
+  // Stable callback ref so it never changes identity and is safe in deps arrays.
+  const onIndexChangeRef = useRef(onIndexChange);
+  useEffect(() => { onIndexChangeRef.current = onIndexChange; }, [onIndexChange]);
+
   useEffect(() => {
     setActiveIndex((current) => {
       const next = Math.min(current, galleryImages.length - 1);
-      onIndexChange?.(next);
+      onIndexChangeRef.current?.(next);
       return next;
     });
-  }, [galleryImages.length, onIndexChange]);
+  }, [galleryImages.length]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      thumbnailRefs.current[activeIndex]?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "nearest",
+    const el = thumbnailRefs.current[activeIndex];
+    if (!el) return undefined;
+    // Use a double-rAF so the browser has completed layout before we read
+    // geometry, eliminating the "Forced reflow while executing JavaScript"
+    // violation that scrollIntoView triggers when called synchronously.
+    let frame1 = requestAnimationFrame(() => {
+      let frame2 = requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+        frame2 = null;
       });
+      return () => { if (frame2 !== null) cancelAnimationFrame(frame2); };
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { if (frame1 !== null) cancelAnimationFrame(frame1); };
   }, [activeIndex]);
 
   useEffect(() => {
@@ -57,20 +90,23 @@ export default function ProductGallery({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [lightboxOpen]);
 
-  const selectImage = (index) => {
+  const selectImage = useCallback((index) => {
     const next = Math.min(Math.max(index, 0), galleryImages.length - 1);
     setActiveIndex(next);
-    onIndexChange?.(next);
-  };
+    onIndexChangeRef.current?.(next);
+  }, [galleryImages.length]);
 
-  const move = (direction) => {
+  const move = useCallback((direction) => {
     if (galleryImages.length < 2) return;
-    const next = activeIndex + direction;
-    if (next < 0 || next >= galleryImages.length) return;
-    selectImage(next);
-  };
+    setActiveIndex((current) => {
+      const next = current + direction;
+      if (next < 0 || next >= galleryImages.length) return current;
+      onIndexChangeRef.current?.(next);
+      return next;
+    });
+  }, [galleryImages.length]);
 
-  const handleKeyDown = (event) => {
+  const handleKeyDown = useCallback((event) => {
     if (event.key === "ArrowRight") {
       event.preventDefault();
       move(1);
@@ -84,15 +120,15 @@ export default function ProductGallery({
       event.preventDefault();
       selectImage(galleryImages.length - 1);
     }
-  };
+  }, [move, selectImage, galleryImages.length]);
 
-  const handlePointerDown = (event) => {
+  const handlePointerDown = useCallback((event) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
     event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
+  }, []);
 
-  const handlePointerUp = (event) => {
+  const handlePointerUp = useCallback((event) => {
     const start = pointerStart.current;
     pointerStart.current = null;
     if (!start || start.id !== event.pointerId) return;
@@ -101,32 +137,42 @@ export default function ProductGallery({
     if (Math.abs(deltaX) < SWIPE_DISTANCE || Math.abs(deltaX) < Math.abs(deltaY)) return;
     suppressClick.current = true;
     move(deltaX < 0 ? 1 : -1);
-  };
+  }, [move]);
 
-  const openLightbox = () => {
+  const openLightbox = useCallback(() => {
     if (suppressClick.current) {
       suppressClick.current = false;
       return;
     }
     setLightboxOpen(true);
-  };
+  }, []);
 
-  const image = galleryImages[activeIndex];
-  const imageLabel = `${alt}, image ${activeIndex + 1} of ${galleryImages.length}`;
+  const imageCount = galleryImages.length;
 
-  const renderImage = (item, index, className = "") => (
+  // renderImage uses a stable onError that falls back to a local SVG data-URI
+  // (generateProductPlaceholderSvg). Zero network, zero latency, always visible.
+  const renderImage = useCallback((item, index, extraClassName = "") => (
     <img
       src={item.url}
-      alt={`${alt}, image ${index + 1} of ${galleryImages.length}`}
+      alt={`${alt}, image ${index + 1} of ${imageCount}`}
       width="800"
       height="800"
       loading={index === activeIndex ? "eager" : "lazy"}
       decoding="async"
-      fetchPriority={index === activeIndex ? "high" : "auto"}
+      fetchpriority={index === activeIndex ? "high" : "auto"}
       draggable="false"
-      className={`aspect-square w-full select-none ${className || "object-cover"}`}
+      onError={(e) => {
+        // Guard against infinite loop — only swap src once.
+        if (!e.currentTarget.dataset.errored) {
+          e.currentTarget.dataset.errored = "1";
+          // Use local SVG placeholder: no network, works offline.
+          e.currentTarget.src = buildFallback(item.uid || alt || "product", alt);
+        }
+      }}
+      className={`aspect-square w-full select-none ${extraClassName || "object-cover"}`}
     />
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [alt, activeIndex, imageCount]);
 
   return (
     <>
@@ -165,6 +211,13 @@ export default function ProductGallery({
                 loading={index === 0 ? "eager" : "lazy"}
                 decoding="async"
                 draggable="false"
+                onError={(e) => {
+                  if (!e.currentTarget.dataset.errored) {
+                    e.currentTarget.dataset.errored = "1";
+                    // Local SVG — no network call, always visible.
+                    e.currentTarget.src = buildFallback(item.uid || alt || "product", alt);
+                  }
+                }}
                 className="h-full w-full object-cover"
               />
               {activeIndex === index && (

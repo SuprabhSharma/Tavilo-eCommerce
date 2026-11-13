@@ -11,6 +11,7 @@ import {
 import ProductPrice from "../components/ProductPrice";
 import { Button, EmptyState, ErrorState, Skeleton } from "../components/ui";
 import { formatCurrency, productImage } from "../lib/formatters";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 
@@ -166,9 +167,20 @@ export default function Cart() {
                 <div className="flex gap-3 sm:gap-5">
                   <img
                     src={productImage(item.product)}
-                    alt=""
+                    alt={item.product_title || ""}
                     width="96"
                     height="96"
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      if (!e.currentTarget.dataset.errored) {
+                        e.currentTarget.dataset.errored = "1";
+                        e.currentTarget.src = generateProductPlaceholderSvg(
+                          item.product_slug || item.product_id || "cart-item",
+                          item.product_title,
+                        );
+                      }
+                    }}
                     className="h-24 w-24 rounded-lg bg-slate-100 object-cover"
                   />
                   <div className="min-w-0 flex-1">

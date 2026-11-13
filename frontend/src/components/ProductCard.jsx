@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import ProductPrice from "./ProductPrice";
 import { Check, Heart, ShoppingBag } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -10,6 +10,7 @@ import {
   removeWishlist,
 } from "../api/shop";
 import { productImage } from "../lib/formatters";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 import { getErrorMessage } from "../lib/errors";
@@ -131,6 +132,16 @@ function ProductCard({ product }) {
           height="610"
           loading="lazy"
           decoding="async"
+          onError={(e) => {
+            if (!e.currentTarget.dataset.errored) {
+              e.currentTarget.dataset.errored = "1";
+              // Local SVG placeholder — zero network, always visible.
+              e.currentTarget.src = generateProductPlaceholderSvg(
+                product.slug || product.uid || "product",
+                product.title,
+              );
+            }
+          }}
           className="aspect-[1.05] w-full object-cover transition duration-300 group-hover:scale-105"
         />
         {!product.is_available && (

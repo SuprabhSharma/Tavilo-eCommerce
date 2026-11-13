@@ -68,6 +68,7 @@ import {
 } from "../components/ui";
 import { getErrorMessage } from "../lib/errors";
 import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -1930,7 +1931,15 @@ function VendorOrders({ profile }) {
                                 src={orderItemImage(item)}
                                 alt={item.title_snapshot}
                                 className="h-9 w-9 shrink-0 rounded-md object-cover bg-slate-100"
-                                onError={(e) => { e.target.onerror = null; e.target.src = `https://picsum.photos/seed/${encodeURIComponent(item.product_slug || item.uid || 'item')}/400/400`; }}
+                                onError={(e) => {
+                                  if (!e.currentTarget.dataset.errored) {
+                                    e.currentTarget.dataset.errored = "1";
+                                    e.currentTarget.src = generateProductPlaceholderSvg(
+                                      item.product_slug || item.uid || "item",
+                                      item.title_snapshot || "",
+                                    );
+                                  }
+                                }}
                               />
                               <div className="min-w-0">
                                 <p className="truncate font-semibold text-ink">

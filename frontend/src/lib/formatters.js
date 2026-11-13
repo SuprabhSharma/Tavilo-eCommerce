@@ -1,3 +1,5 @@
+import { generateProductPlaceholderSvg } from "./placeholders";
+
 export const formatCurrency = (value) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -28,20 +30,25 @@ export const discountPercent = (price, mrp) => {
   );
 };
 export const productImage = (product, index = 0) => {
-  if (product?.images?.[index]?.url) return product.images[index].url;
+  const url = product?.images?.[index]?.url;
+  // If the image URL is missing or points to an unreliable external placeholder
+  // like picsum.photos, return the instant local SVG placeholder.
+  if (url && !url.includes("picsum.photos")) return url;
   const seed = product?.slug || product?.uid || "product";
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/400/400`;
+  return generateProductPlaceholderSvg(seed, product?.title || "");
 };
 
 export const orderItemImage = (item) => {
-  if (item?.image_url) return item.image_url;
-  if (item?.images?.[0]?.url) return item.images[0].url;
-  if (item?.product?.images?.[0]?.url) return item.product.images[0].url;
+  const url =
+    item?.image_url ||
+    item?.images?.[0]?.url ||
+    item?.product?.images?.[0]?.url;
+  if (url && !url.includes("picsum.photos")) return url;
   const seed =
     item?.product_slug ||
     item?.product_id ||
     item?.title_snapshot ||
     item?.uid ||
     "order-item";
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/400/400`;
+  return generateProductPlaceholderSvg(seed, item?.title_snapshot || "");
 };

@@ -28,6 +28,7 @@ import {
   Skeleton,
 } from "../components/ui";
 import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
+import { generateProductPlaceholderSvg } from "../lib/placeholders";
 import { broadcastOrderUpdate, subscribeToOrderUpdates } from "../lib/orderSync";
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -465,8 +466,13 @@ export function Orders() {
                                     className="h-full w-full object-cover"
                                     loading="lazy"
                                     onError={(e) => {
-                                      e.currentTarget.onerror = null;
-                                      e.currentTarget.src = `https://picsum.photos/seed/${encodeURIComponent(item.product_slug || item.uid || "item")}/400/400`;
+                                      if (!e.currentTarget.dataset.errored) {
+                                        e.currentTarget.dataset.errored = "1";
+                                        e.currentTarget.src = generateProductPlaceholderSvg(
+                                          item.product_slug || item.uid || "item",
+                                          item.title_snapshot || "",
+                                        );
+                                      }
                                     }}
                                   />
                                 </Link>
@@ -821,8 +827,13 @@ export function OrderDetail() {
                           alt={item.title_snapshot}
                           className="h-20 w-20 rounded-xl object-cover bg-slate-100 ring-1 ring-slate-200 transition hover:opacity-80 sm:h-24 sm:w-24"
                           onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = `https://picsum.photos/seed/${encodeURIComponent(item.product_slug || item.uid || "item")}/400/400`;
+                            if (!e.currentTarget.dataset.errored) {
+                              e.currentTarget.dataset.errored = "1";
+                              e.currentTarget.src = generateProductPlaceholderSvg(
+                                item.product_slug || item.uid || "item",
+                                item.title_snapshot || "",
+                              );
+                            }
                           }}
                         />
                       </Link>
@@ -832,8 +843,13 @@ export function OrderDetail() {
                         alt={item.title_snapshot}
                         className="h-20 w-20 shrink-0 rounded-xl object-cover bg-slate-100 ring-1 ring-slate-200 sm:h-24 sm:w-24"
                         onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = `https://picsum.photos/seed/${encodeURIComponent(item.uid || "item")}/400/400`;
+                          if (!e.currentTarget.dataset.errored) {
+                            e.currentTarget.dataset.errored = "1";
+                            e.currentTarget.src = generateProductPlaceholderSvg(
+                              item.product_slug || item.uid || "item",
+                              item.title_snapshot || "",
+                            );
+                          }
                         }}
                       />
                     )}
