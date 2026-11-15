@@ -78,7 +78,7 @@ token_blocklist_service = TokenBlocklistService()
 role_checker = RoleChecker(["admin", "customer", "vendor"])
 admin_only_dependency = Depends(RoleChecker(["admin"]))
 session_dependency = Depends(get_session)
-refresh_token_dependency = Depends(RefreshTokenBearer())
+refresh_token_dependency = Depends(RefreshTokenBearer(auto_error=False))
 access_token_dependency = Depends(AccessTokenBearer())
 current_user_dependency = Depends(get_verified_user)
 role_dependency = Depends(role_checker)
@@ -437,9 +437,18 @@ async def login_users(
 
 @auth_router.post("/refresh_token")  # Changed from GET to POST
 async def get_new_access_token(
-    token_details: dict = refresh_token_dependency,
+    response: Response,
+    token_details: dict | None = refresh_token_dependency,
     session: AsyncSession = session_dependency,
 ):
+    if token_details is None:
+        response.delete_cookie(
+            key=Config.REFRESH_COOKIE_NAME,
+            path=Config.REFRESH_COOKIE_PATH,
+        )
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return response
+
     expiry_timestamp = token_details["exp"]
 
     if datetime.fromtimestamp(expiry_timestamp, tz=timezone.utc) > datetime.now(timezone.utc):

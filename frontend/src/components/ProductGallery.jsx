@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { generateProductPlaceholderSvg } from "../lib/placeholders";
+import { imageSrcSet, imageVariant } from "../lib/formatters";
 
 const SWIPE_DISTANCE = 48;
 
@@ -149,30 +150,40 @@ export default function ProductGallery({
 
   const imageCount = galleryImages.length;
 
-  // renderImage uses a stable onError that falls back to a local SVG data-URI
-  // (generateProductPlaceholderSvg). Zero network, zero latency, always visible.
-  const renderImage = useCallback((item, index, extraClassName = "") => (
-    <img
-      src={item.url}
-      alt={`${alt}, image ${index + 1} of ${imageCount}`}
-      width="800"
-      height="800"
-      loading={index === activeIndex ? "eager" : "lazy"}
-      decoding="async"
-      fetchpriority={index === activeIndex ? "high" : "auto"}
-      draggable="false"
-      onError={(e) => {
-        // Guard against infinite loop — only swap src once.
-        if (!e.currentTarget.dataset.errored) {
-          e.currentTarget.dataset.errored = "1";
-          // Use local SVG placeholder: no network, works offline.
-          e.currentTarget.src = buildFallback(item.uid || alt || "product", alt);
-        }
-      }}
-      className={`aspect-square w-full select-none ${extraClassName || "object-cover"}`}
-    />
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [alt, activeIndex, imageCount]);
+  // renderImage uses imageVariant and imageSrcSet for responsive multi-size images
+  const renderImage = useCallback(
+    (item, index, extraClassName = "", isZoom = false) => {
+      const targetWidth = isZoom ? 1600 : 800;
+      const initialSrc = imageVariant(item.url, targetWidth);
+      return (
+        <img
+          src={initialSrc}
+          srcSet={imageSrcSet(item.url)}
+          sizes={isZoom ? "100vw" : "(min-width: 1024px) 50vw, 100vw"}
+          alt={`${alt}, image ${index + 1} of ${imageCount}`}
+          width={targetWidth}
+          height={targetWidth}
+          loading={index === activeIndex ? "eager" : "lazy"}
+          decoding="async"
+          fetchpriority={index === activeIndex ? "high" : "auto"}
+          draggable="false"
+          onError={(e) => {
+            if (!e.currentTarget.dataset.retried && item.url && /_\d+\.webp/.test(item.url)) {
+              e.currentTarget.dataset.retried = "1";
+              e.currentTarget.srcset = "";
+              e.currentTarget.src = item.url;
+            } else if (!e.currentTarget.dataset.errored) {
+              e.currentTarget.dataset.errored = "1";
+              e.currentTarget.srcset = "";
+              e.currentTarget.src = buildFallback(item.uid || alt || "product", alt);
+            }
+          }}
+          className={`aspect-square w-full select-none ${extraClassName || "object-cover"}`}
+        />
+      );
+    },
+    [alt, activeIndex, imageCount],
+  );
 
   return (
     <>
@@ -197,6 +208,13 @@ export default function ProductGallery({
               aria-selected={activeIndex === index}
               aria-label={`View image ${index + 1} of ${galleryImages.length}`}
               onClick={() => selectImage(index)}
+              onMouseEnter={() => {
+                const nextSrc = imageVariant(item.url, 800);
+                if (nextSrc) {
+                  const preloadImg = new Image();
+                  preloadImg.src = nextSrc;
+                }
+              }}
               className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 bg-white transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 sm:h-[72px] sm:w-[72px] ${
                 activeIndex === index
                   ? "border-brand-600 shadow-[0_0_0_2px_rgba(11,181,176,0.18)]"
@@ -204,7 +222,7 @@ export default function ProductGallery({
               }`}
             >
               <img
-                src={item.url}
+                src={imageVariant(item.url, 160)}
                 alt=""
                 width="72"
                 height="72"
@@ -214,7 +232,6 @@ export default function ProductGallery({
                 onError={(e) => {
                   if (!e.currentTarget.dataset.errored) {
                     e.currentTarget.dataset.errored = "1";
-                    // Local SVG — no network call, always visible.
                     e.currentTarget.src = buildFallback(item.uid || alt || "product", alt);
                   }
                 }}
@@ -300,7 +317,7 @@ export default function ProductGallery({
             >
               {galleryImages.map((item, index) => (
                 <div key={item.uid || `${item.url}-${index}`} className="flex min-w-full justify-center">
-                  {renderImage(item, index, "max-h-[88vh] max-w-full object-contain")}
+                  {renderImage(item, index, "max-h-[88vh] max-w-full object-contain", true)}
                 </div>
               ))}
             </div>

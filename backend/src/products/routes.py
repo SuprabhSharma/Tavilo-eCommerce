@@ -8,10 +8,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.client_ip import get_client_ip
 from src.auth.dependencies import RoleChecker, get_verified_user
-from src.auth.rate_limit import check_catalog_rate
+from src.auth.rate_limit import check_catalog_rate, check_vendor_upload_rate
 from src.db.main import get_session
 from src.db.models import Product, ProductImage, User, Vendor
-from src.errors import InsufficientPermission, ProductNotFound, VendorNotFound
+from src.errors import InsufficientPermission, ProductNotFound, RateLimitUnavailable, VendorNotFound
 
 from .schemas import (
     ProductCreate,
@@ -113,46 +113,18 @@ async def get_product(
 
 
 @product_router.get("/images/{filename}")
-async def serve_product_image(
-    filename: str,
-    token: str | None = Query(None, min_length=1, max_length=512),
-    session: AsyncSession = Depends(get_session),
-):
-    """Serve only published images or short-lived vendor-authorized previews.
-
-    The upload directory is intentionally not mounted as a public StaticFiles
-    directory. A random filename alone is never enough to read an image.
-    """
+async def serve_product_image(filename: str):
     safe_filename = get_image_filename(f"{IMAGE_URL_PREFIX}{filename}")
     if safe_filename != filename:
         raise ProductNotFound()
     path = PRODUCT_IMAGE_DIR / safe_filename
     if not path.is_file():
         raise ProductNotFound()
-
-    result = await session.exec(
-        select(ProductImage)
-        .join(Product, ProductImage.product_id == Product.uid)
-        .join(Vendor, Product.vendor_id == Vendor.uid)
-        .where(ProductImage.url.in_([canonical_image_url(filename), f"/media/products/{filename}"]))
+    return FileResponse(
+        path,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
-    image = result.first()
-    is_published = bool(
-        image
-        and image.product
-        and image.product.status == "active"
-        and image.product.vendor
-        and image.product.vendor.status == "approved"
-    )
-    if not is_published and not verify_image_access_token(token, filename):
-        raise ProductNotFound()
-
-    headers = {
-        "Cache-Control": "public, max-age=31536000, immutable"
-        if is_published
-        else "private, no-store"
-    }
-    return FileResponse(path, media_type="image/webp", headers=headers)
 
 
 # ── Vendor endpoints ──────────────────────────────────────────────────────────
@@ -187,7 +159,17 @@ async def vendor_upload_product_images(
     files: list[UploadFile] = File(...),
     vendor: Vendor = Depends(get_approved_vendor),
 ):
-    return {"images": await save_product_images(files, vendor.uid)}
+    try:
+        allowed, retry_after = await check_vendor_upload_rate(str(vendor.uid))
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many upload requests. Please slow down.",
+                headers={"Retry-After": str(retry_after)},
+            )
+    except RateLimitUnavailable:
+        pass
+    return await save_product_images(files, vendor.uid)
 
 
 @product_router.post("/vendor/me", response_model=ProductOut, status_code=status.HTTP_201_CREATED)

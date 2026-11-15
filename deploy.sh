@@ -197,6 +197,31 @@ backup_db() {
 }
 
 ##############################################################
+# Media uploads backup (tar of /app/uploads/products)
+##############################################################
+MEDIA_BACKUP_FILE=""
+backup_media() {
+  if [[ "${SKIP_BACKUP:-0}" == "1" ]]; then return 0; fi
+  if [[ -z "$(dc ps -q --status running api 2>/dev/null)" ]]; then
+    return 0
+  fi
+  mkdir -p "${BACKUP_DIR}"
+  local ts tmp
+  ts="$(date '+%Y%m%d-%H%M%S')"
+  tmp="${BACKUP_DIR}/.partial-media-${ts}.tar.gz"
+  MEDIA_BACKUP_FILE="${BACKUP_DIR}/media-uploads-${ts}.tar.gz"
+  log "Backing up media uploads -> ${MEDIA_BACKUP_FILE}"
+  if dc exec -T api tar -czf - -C /app/uploads products > "${tmp}" 2>/dev/null \
+     && [[ -s "${tmp}" ]]; then
+    mv "${tmp}" "${MEDIA_BACKUP_FILE}"
+  else
+    rm -f "${tmp}"
+    warn "Media backup produced empty archive or failed; continuing."
+  fi
+  ls -1t "${BACKUP_DIR}"/media-uploads-*.tar.gz 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | xargs -r rm -f
+}
+
+##############################################################
 # Commands
 ##############################################################
 cmd_deploy() {
@@ -212,6 +237,7 @@ cmd_deploy() {
 
   clean_stale
   backup_db
+  backup_media
 
   # Keep the running release's images as :previous so `rollback` works.
   local img
@@ -263,7 +289,7 @@ cmd_status() {
 }
 
 cmd_logs()   { dc logs -f --tail=100 "$@"; }
-cmd_backup() { backup_db; log "Backup done: ${BACKUP_FILE:-none}"; }
+cmd_backup() { backup_db; backup_media; log "Backup done: DB=${BACKUP_FILE:-none}, Media=${MEDIA_BACKUP_FILE:-none}"; }
 
 ##############################################################
 # Entry point (wrapped in a function so editing this file mid-run via

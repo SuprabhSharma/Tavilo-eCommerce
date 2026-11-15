@@ -27,8 +27,8 @@ import {
   ErrorState,
   Skeleton,
 } from "../components/ui";
-import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
-import { generateProductPlaceholderSvg } from "../lib/placeholders";
+import ProductImage from "../components/ProductImage";
+import { formatCurrency, formatDate, imageVariant, orderItemImage } from "../lib/formatters";
 import { broadcastOrderUpdate, subscribeToOrderUpdates } from "../lib/orderSync";
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -460,20 +460,11 @@ export function Orders() {
                                   }
                                   className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 transition hover:ring-brand-300 sm:h-24 sm:w-24"
                                 >
-                                  <img
-                                    src={orderItemImage(item)}
+                                  <ProductImage
+                                    src={imageVariant(orderItemImage(item), 160)}
                                     alt={item.title_snapshot}
                                     className="h-full w-full object-cover"
                                     loading="lazy"
-                                    onError={(e) => {
-                                      if (!e.currentTarget.dataset.errored) {
-                                        e.currentTarget.dataset.errored = "1";
-                                        e.currentTarget.src = generateProductPlaceholderSvg(
-                                          item.product_slug || item.uid || "item",
-                                          item.title_snapshot || "",
-                                        );
-                                      }
-                                    }}
                                   />
                                 </Link>
                                 <div className="min-w-0 flex-1 py-1">
@@ -822,35 +813,17 @@ export function OrderDetail() {
                   <div className="flex items-center gap-3 min-w-0">
                     {item.product_slug ? (
                       <Link to={`/p/${item.product_slug}`} className="shrink-0">
-                        <img
-                          src={orderItemImage(item)}
+                        <ProductImage
+                          src={imageVariant(orderItemImage(item), 160)}
                           alt={item.title_snapshot}
                           className="h-20 w-20 rounded-xl object-cover bg-slate-100 ring-1 ring-slate-200 transition hover:opacity-80 sm:h-24 sm:w-24"
-                          onError={(e) => {
-                            if (!e.currentTarget.dataset.errored) {
-                              e.currentTarget.dataset.errored = "1";
-                              e.currentTarget.src = generateProductPlaceholderSvg(
-                                item.product_slug || item.uid || "item",
-                                item.title_snapshot || "",
-                              );
-                            }
-                          }}
                         />
                       </Link>
                     ) : (
-                      <img
-                        src={orderItemImage(item)}
+                      <ProductImage
+                        src={imageVariant(orderItemImage(item), 160)}
                         alt={item.title_snapshot}
                         className="h-20 w-20 shrink-0 rounded-xl object-cover bg-slate-100 ring-1 ring-slate-200 sm:h-24 sm:w-24"
-                        onError={(e) => {
-                          if (!e.currentTarget.dataset.errored) {
-                            e.currentTarget.dataset.errored = "1";
-                            e.currentTarget.src = generateProductPlaceholderSvg(
-                              item.product_slug || item.uid || "item",
-                              item.title_snapshot || "",
-                            );
-                          }
-                        }}
                       />
                     )}
                     <div className="min-w-0">

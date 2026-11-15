@@ -380,6 +380,8 @@ class ProductImage(SQLModel, table=True):
     product_id: uuid.UUID = Field(foreign_key="products.uid", nullable=False)
     url: str = Field(sa_column=Column(pg.VARCHAR(500), nullable=False))
     position: int = Field(default=0)
+    width: Optional[int] = Field(default=None, nullable=True)
+    height: Optional[int] = Field(default=None, nullable=True)
 
     product: Optional[Product] = Relationship(
         back_populates="images",

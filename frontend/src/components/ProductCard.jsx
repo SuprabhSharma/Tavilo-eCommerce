@@ -9,15 +9,15 @@ import {
   removeCartItem,
   removeWishlist,
 } from "../api/shop";
-import { productImage } from "../lib/formatters";
-import { generateProductPlaceholderSvg } from "../lib/placeholders";
+import { imageSrcSet, imageVariant, productImage } from "../lib/formatters";
+import ProductImage from "./ProductImage";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 import { getErrorMessage } from "../lib/errors";
 import { Rating } from "./ui";
 import { useProductActionState } from "./ProductActionState";
 
-function ProductCard({ product }) {
+function ProductCard({ product, priority = false }) {
   const isLoggedIn = Boolean(useAuthStore((state) => state.accessToken));
   const [message, setMessage] = useState("");
   const queryClient = useQueryClient();
@@ -123,26 +123,18 @@ function ProductCard({ product }) {
     <article className="group flex min-w-0 flex-col overflow-hidden rounded-card border border-line bg-white p-2.5 shadow-card transition hover:-translate-y-0.5 hover:shadow-float sm:p-3">
       <Link
         to={`/p/${product.slug}`}
-        className="relative block overflow-hidden rounded-lg bg-slate-100"
+        className="relative block aspect-square overflow-hidden rounded-lg bg-slate-100"
       >
-        <img
-          src={productImage(product)}
+        <ProductImage
+          src={imageVariant(productImage(product), 480)}
+          srcSet={imageSrcSet(productImage(product))}
+          sizes="(min-width:1024px) 25vw, 50vw"
           alt={product.title}
-          width="640"
-          height="610"
-          loading="lazy"
-          decoding="async"
-          onError={(e) => {
-            if (!e.currentTarget.dataset.errored) {
-              e.currentTarget.dataset.errored = "1";
-              // Local SVG placeholder — zero network, always visible.
-              e.currentTarget.src = generateProductPlaceholderSvg(
-                product.slug || product.uid || "product",
-                product.title,
-              );
-            }
-          }}
-          className="aspect-[1.05] w-full object-cover transition duration-300 group-hover:scale-105"
+          width={480}
+          height={480}
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
         />
         {!product.is_available && (
           <span className="absolute left-2 top-2 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">

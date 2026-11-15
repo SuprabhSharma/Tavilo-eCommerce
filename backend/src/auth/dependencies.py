@@ -30,30 +30,34 @@ class TokenBearer(HTTPBearer):
         self,
         request: Request,
         session: AsyncSession = Depends(get_session),
-    ) -> dict:
+    ) -> dict | None:
         token = request.cookies.get(self.cookie_name) if self.cookie_name else None
         if not token and self.cookie_only:
+            if not self.auto_error:
+                return None
             raise InvalidToken()
         if not token:
             creds = await super().__call__(request)
             token = creds.credentials
 
-        token_data = decode_token(token)
+        try:
+            token_data = decode_token(token)
 
-        if not self.token_valid(token_data):
-            raise InvalidToken()
-            
-        token_revoked = await token_blocklist_service.is_token_revoked(
-            token_data["jti"], session
-        )
+            if not self.token_valid(token_data):
+                raise InvalidToken()
 
-        if token_revoked:
-            raise RevokedToken()
-            
-            
-        self.verify_token_data(token_data)
+            token_revoked = await token_blocklist_service.is_token_revoked(
+                token_data["jti"], session
+            )
+            if token_revoked:
+                raise RevokedToken()
 
-        return token_data
+            self.verify_token_data(token_data)
+            return token_data
+        except (InvalidToken, RevokedToken, RefreshTokenRequired):
+            if not self.auto_error:
+                return None
+            raise
 
     def token_valid(self, token_data: dict | None) -> bool:
         required_claims = {"user", "jti", "refresh", "exp", "sv"}

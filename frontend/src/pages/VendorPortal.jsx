@@ -26,6 +26,7 @@ import {
   Package,
   Phone,
   Plus,
+  RotateCcw,
   Search,
   ShoppingBag,
   Store,
@@ -51,6 +52,7 @@ import {
   updateVendorService,
   updateVendorProfile,
   updateVendorSubOrderStatus,
+  uploadVendorProductImage,
   uploadVendorProductImages,
 } from "../api/vendor";
 import { BackLink, PageHeader } from "../components/Page";
@@ -68,7 +70,7 @@ import {
 } from "../components/ui";
 import { getErrorMessage } from "../lib/errors";
 import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
-import { generateProductPlaceholderSvg } from "../lib/placeholders";
+import ProductImage from "../components/ProductImage";
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -1175,11 +1177,20 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
   const [form, setForm] = useState(() =>
     product ? toForm(product) : blankProduct(),
   );
-  const [images, setImages] = useState(() =>
-    product ? (product.images || []).map((image) => image.url) : [],
+  const [imageItems, setImageItems] = useState(() =>
+    product && product.images
+      ? product.images.map((img, i) => ({
+          id: `existing-${img.uid || i}`,
+          url: typeof img === "string" ? img : img.url,
+          status: "done",
+          progress: 100,
+          error: null,
+        }))
+      : [],
   );
-  const [uploading, setUploading] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(null);
+  const isUploading = imageItems.some((it) => it.status === "uploading");
+
   const mutation = useMutation({
     mutationFn: (payload) =>
       product
@@ -1188,43 +1199,173 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
     onSuccess: onSaved,
     onError: (e) => setError(getErrorMessage(e)),
   });
+
   const update = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  const downscaleIfLarge = async (file) => {
+    if (file.size <= 4 * 1024 * 1024) return file;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const maxSide = 2400;
+      let { width, height } = bitmap;
+      if (width > maxSide || height > maxSide) {
+        if (width > height) {
+          height = Math.round((height * maxSide) / width);
+          width = maxSide;
+        } else {
+          width = Math.round((width * maxSide) / height);
+          height = maxSide;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.9),
+      );
+      if (blob && blob.size < file.size) {
+        return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), {
+          type: "image/jpeg",
+        });
+      }
+      return file;
+    } catch {
+      return file;
+    }
+  };
+
+  const uploadSingleItem = async (item) => {
+    setImageItems((current) =>
+      current.map((it) =>
+        it.id === item.id
+          ? { ...it, status: "uploading", progress: 0, error: null }
+          : it,
+      ),
+    );
+    try {
+      const preparedFile = await downscaleIfLarge(item.file);
+      const data = await uploadVendorProductImage(preparedFile, {
+        onProgress: (pct) => {
+          setImageItems((current) =>
+            current.map((it) =>
+              it.id === item.id ? { ...it, progress: pct } : it,
+            ),
+          );
+        },
+      });
+      const url = data.images && data.images[0];
+      if (!url) throw new Error("Upload failed: No image URL returned");
+      setImageItems((current) =>
+        current.map((it) =>
+          it.id === item.id
+            ? { ...it, status: "done", progress: 100, url, error: null }
+            : it,
+        ),
+      );
+    } catch (err) {
+      let msg = "Upload failed";
+      if (err.response?.status === 413) {
+        msg = "Image is too large (max 10 MB).";
+      } else if (err.response?.status === 400) {
+        msg = err.response.data?.detail || "Invalid image.";
+      } else if (err.response?.status === 429) {
+        msg = "Upload rate limit reached. Please wait a moment.";
+      } else if (err.message) {
+        msg = err.message;
+      }
+      setImageItems((current) =>
+        current.map((it) =>
+          it.id === item.id ? { ...it, status: "error", error: msg } : it,
+        ),
+      );
+    }
+  };
+
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     if (!files.length) return;
-    if (images.length + files.length > 10) {
+    setError("");
+
+    const validTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxBytes = 10 * 1024 * 1024;
+
+    if (imageItems.length + files.length > 10) {
       setError("You can add up to 10 product photos.");
       return;
     }
-    setUploading(true);
-    setError("");
-    try {
-      const data = await uploadVendorProductImages(files);
-      setImages((current) => [...current, ...data.images]);
-    } catch (uploadError) {
-      setError(getErrorMessage(uploadError));
-    } finally {
-      setUploading(false);
+
+    const newItems = [];
+    for (const file of files) {
+      if (!validTypes.includes(file.type)) {
+        setError(`"${file.name}" is not a JPG, PNG, or WebP.`);
+        continue;
+      }
+      if (file.size > maxBytes) {
+        setError(`"${file.name}" exceeds 10 MB.`);
+        continue;
+      }
+      newItems.push({
+        id: `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        url: URL.createObjectURL(file),
+        status: "uploading",
+        progress: 0,
+        error: null,
+      });
     }
+
+    if (!newItems.length) return;
+
+    setImageItems((current) => [...current, ...newItems]);
+
+    // Concurrency 3 pool
+    const queue = [...newItems];
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (item) {
+          await uploadSingleItem(item);
+        }
+      }
+    };
+    const workers = Array.from(
+      { length: Math.min(3, newItems.length) },
+      () => runWorker(),
+    );
+    await Promise.all(workers);
   };
-  const removeImage = (index) => {
-    setImages((current) => current.filter((_, imageIndex) => imageIndex !== index));
+
+  const retryUpload = (item) => {
+    uploadSingleItem(item);
+  };
+
+  const removeImage = (id) => {
+    const item = imageItems.find((it) => it.id === id);
+    if (item && item.url && item.url.startsWith("blob:")) {
+      URL.revokeObjectURL(item.url);
+    }
+    setImageItems((current) => current.filter((it) => it.id !== id));
     setPreviewIndex((current) => {
-      if (current === index) return null;
-      return current !== null && current > index ? current - 1 : current;
+      const idx = imageItems.findIndex((it) => it.id === id);
+      if (current === idx) return null;
+      return current !== null && current > idx ? current - 1 : current;
     });
   };
+
   const moveImage = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return;
-    setImages((current) => {
+    setImageItems((current) => {
       const next = [...current];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
       return next;
     });
   };
+
   const submit = (event) => {
     event.preventDefault();
     setError("");
@@ -1244,15 +1385,21 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
       (!Number.isFinite(maximumRetailPrice) || maximumRetailPrice < sellingPrice)
     )
       return setError("MRP must be greater than or equal to the selling price.");
-    if (!images.length)
-    return setError("Add at least one product photo before publishing.");
+
+    const completedUrls = imageItems
+      .filter((it) => it.status === "done" && it.url)
+      .map((it) => it.url);
+    if (!completedUrls.length) {
+      return setError("Add at least one product photo before publishing.");
+    }
+
     mutation.mutate({
       ...form,
       price: Number(form.price),
       mrp: form.mrp ? Number(form.mrp) : null,
       stock: Number(form.stock || 0),
       category_id: form.category_id || null,
-      image_urls: images,
+      image_urls: completedUrls,
     });
   };
   return (
@@ -1379,24 +1526,27 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
             <label className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-line bg-slate-50 text-center transition hover:border-brand-500 hover:bg-brand-50">
               <Upload size={22} className="text-brand-600" />
               <span className="mt-1 text-sm font-semibold text-ink">
-                {uploading ? "Uploading and compressing..." : "Choose product photos"}
+                {isUploading ? "Uploading photos..." : "Choose product photos"}
               </span>
               <span className="text-xs text-muted">JPG, PNG or WebP, up to 10 MB each</span>
+              <span className="mt-1 block text-xs text-brand-600">
+                Use a clean, well-lit photo on a plain background. 1000×1000px or larger lets customers zoom.
+              </span>
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 multiple
-                disabled={uploading}
+                disabled={isUploading}
                 onChange={handleImageUpload}
                 className="sr-only"
               />
             </label>
-            {images.length > 0 && (
+            {imageItems.length > 0 && (
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {images.map((url, index) => (
+                {imageItems.map((item, index) => (
                   <div
-                    key={`${url}-${index}`}
-                    draggable
+                    key={item.id}
+                    draggable={item.status === "done"}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData("text/plain", String(index));
@@ -1406,32 +1556,99 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
                       event.preventDefault();
                       moveImage(Number(event.dataTransfer.getData("text/plain")), index);
                     }}
-                    onClick={() => setPreviewIndex(index)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setPreviewIndex(index);
-                      }
-                    }}
+                    onClick={() => item.status === "done" && setPreviewIndex(index)}
                     role="button"
                     tabIndex="0"
                     aria-label={`Preview product photo ${index + 1}`}
                     aria-current={previewIndex === index ? "true" : undefined}
-                    className={`group relative aspect-square overflow-hidden rounded-lg border-2 bg-slate-100 transition focus:outline-none focus:ring-2 focus:ring-brand-500 ${previewIndex === index ? "border-brand-600 shadow-[0_0_0_2px_rgba(11,181,176,0.18)]" : "border-line"}`}
+                    className={`group relative aspect-square overflow-hidden rounded-lg border-2 bg-slate-100 transition focus:outline-none focus:ring-2 focus:ring-brand-500 ${
+                      item.status === "error"
+                        ? "border-red-500 bg-red-50"
+                        : previewIndex === index
+                        ? "border-brand-600 shadow-[0_0_0_2px_rgba(11,181,176,0.18)]"
+                        : "border-line"
+                    }`}
                   >
-                    <img src={url} alt={`Product photo ${index + 1}`} className="h-full w-full object-cover" />
+                    <ProductImage
+                      src={item.url}
+                      alt={`Product photo ${index + 1}`}
+                      className="h-full w-full object-cover"
+                    />
                     <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-xs font-semibold text-white">
-                      {index + 1}
+                      {index === 0 ? "Main image" : index + 1}
                     </span>
-                    <div className="absolute inset-x-0 bottom-0 flex justify-between bg-black/60 p-1 opacity-0 transition group-hover:opacity-100">
-                      <button type="button" onClick={(event) => { event.stopPropagation(); setPreviewIndex(index); }} className="rounded p-1 text-white hover:bg-white/20" aria-label="Zoom image">
-                        <ZoomIn size={16} />
-                      </button>
-                      <span className="p-1 text-white" title="Drag to reorder"><GripVertical size={16} /></span>
-                      <button type="button" onClick={(event) => { event.stopPropagation(); removeImage(index); }} className="rounded p-1 text-white hover:bg-red-500" aria-label="Remove image">
-                        <X size={16} />
-                      </button>
-                    </div>
+                    {item.status === "uploading" && (
+                      <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2">
+                        <div className="h-1.5 w-full rounded-full bg-slate-700">
+                          <div
+                            className="h-1.5 rounded-full bg-brand-500 transition-all duration-200"
+                            style={{ width: `${item.progress}%` }}
+                          />
+                        </div>
+                        <span className="mt-1 block text-center text-[10px] text-white">
+                          {item.progress}%
+                        </span>
+                      </div>
+                    )}
+                    {item.status === "error" && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 p-2 text-center text-white">
+                        <span className="text-xs text-red-300 line-clamp-2">
+                          {item.error || "Upload failed"}
+                        </span>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              retryUpload(item);
+                            }}
+                            className="flex items-center gap-1 rounded bg-brand-600 px-2 py-1 text-xs font-medium hover:bg-brand-500"
+                          >
+                            <RotateCcw size={12} /> Retry
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeImage(item.id);
+                            }}
+                            className="rounded bg-red-600 p-1 hover:bg-red-500"
+                            aria-label="Remove"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {item.status === "done" && (
+                      <div className="absolute inset-x-0 bottom-0 flex justify-between bg-black/60 p-1 opacity-0 transition group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setPreviewIndex(index);
+                          }}
+                          className="rounded p-1 text-white hover:bg-white/20"
+                          aria-label="Zoom image"
+                        >
+                          <ZoomIn size={16} />
+                        </button>
+                        <span className="p-1 text-white" title="Drag to reorder">
+                          <GripVertical size={16} />
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeImage(item.id);
+                          }}
+                          className="rounded p-1 text-white hover:bg-red-500"
+                          aria-label="Remove image"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1446,21 +1663,21 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button loading={mutation.isPending || uploading} disabled={uploading}>
+            <Button loading={mutation.isPending || isUploading} disabled={isUploading}>
               {product ? "Save changes" : "Publish product"}
             </Button>
           </div>
         </form>
       </div>
-      {previewIndex !== null && images[previewIndex] && (
+      {previewIndex !== null && imageItems.filter((it) => it.status === "done" && it.url)[previewIndex] && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 sm:p-8" onClick={() => setPreviewIndex(null)}>
           <button type="button" onClick={() => setPreviewIndex(null)} className="absolute right-5 top-5 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" aria-label="Close image preview">
             <X size={24} />
           </button>
           <div className="w-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
             <ProductGallery
-              images={images}
-              fallback={images[0]}
+              images={imageItems.filter((it) => it.status === "done" && it.url).map((it) => it.url)}
+              fallback={imageItems.filter((it) => it.status === "done" && it.url).map((it) => it.url)[0]}
               alt={form.title || "Product preview"}
               initialIndex={previewIndex}
               onIndexChange={setPreviewIndex}
@@ -1927,19 +2144,10 @@ function VendorOrders({ profile }) {
                             className="flex min-w-0 items-center justify-between gap-3 p-3 text-sm"
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <img
+                              <ProductImage
                                 src={orderItemImage(item)}
                                 alt={item.title_snapshot}
                                 className="h-9 w-9 shrink-0 rounded-md object-cover bg-slate-100"
-                                onError={(e) => {
-                                  if (!e.currentTarget.dataset.errored) {
-                                    e.currentTarget.dataset.errored = "1";
-                                    e.currentTarget.src = generateProductPlaceholderSvg(
-                                      item.product_slug || item.uid || "item",
-                                      item.title_snapshot || "",
-                                    );
-                                  }
-                                }}
                               />
                               <div className="min-w-0">
                                 <p className="truncate font-semibold text-ink">

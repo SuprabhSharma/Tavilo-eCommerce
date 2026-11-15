@@ -12,6 +12,7 @@ from src.cart.schemas import CartItemAdd, CartItemUpdate
 from src.errors import AccessTokenRequired
 from src.orders.schemas import CheckoutRequest, OrderItemOut
 from src.products.schemas import ProductCreate, ProductUpdate, calculate_discount_percent
+from src.products.service import ProductService
 
 
 pytestmark = pytest.mark.no_db
@@ -55,6 +56,31 @@ def test_product_create_normalizes_fields_and_computes_discount():
 def test_product_create_rejects_invalid_price_or_missing_image(payload):
     with pytest.raises(ValidationError):
         ProductCreate(**payload)
+
+
+def test_product_reads_hide_missing_local_media_without_dropping_database_records(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import src.products.image_storage as image_storage
+
+    monkeypatch.setattr(image_storage, "PRODUCT_IMAGE_DIR", tmp_path)
+    existing = tmp_path / "existing.webp"
+    existing.write_bytes(b"webp")
+    product = SimpleNamespace(
+        images=[
+            SimpleNamespace(url="/api/v1/products/images/existing.webp"),
+            SimpleNamespace(url="/api/v1/products/images/missing.webp"),
+            SimpleNamespace(url="https://cdn.example.com/product.webp"),
+        ]
+    )
+
+    response_product = ProductService._with_available_images(product)
+
+    assert [image.url for image in response_product.images] == [
+        "/api/v1/products/images/existing.webp",
+        "https://cdn.example.com/product.webp",
+    ]
+    assert len(product.images) == 3
 
 
 def test_product_update_validates_price_pair_when_both_values_are_supplied():

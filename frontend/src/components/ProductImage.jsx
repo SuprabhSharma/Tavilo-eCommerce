@@ -2,81 +2,72 @@
  * ProductImage — production-grade image component for Tavilo.
  *
  * Features:
+ *  • Multi-size srcset / sizes support
  *  • Shimmer skeleton while loading (no layout shift)
- *  • onError fallback to local SVG placeholder (zero network, always visible)
- *  • decoding="async" + loading prop forwarded
- *  • fetchpriority for LCP images (lowercase — works across all React 18.x)
- *  • Wraps <img> so callers never worry about broken src
+ *  • One-time variant fallback to base _1600 URL before SVG fallback
+ *  • decoding="async" + fetchpriority for LCP images
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { generateProductPlaceholderSvg } from "../lib/placeholders";
 
 function buildFallback(seed, title) {
   return generateProductPlaceholderSvg(seed || "product", title || "");
 }
 
-/**
- * @param {object} props
- * @param {string}  props.src            Primary image URL.
- * @param {string}  props.alt            Alt text (required for a11y).
- * @param {string}  [props.fallbackSeed] Seed used for the placeholder.
- * @param {string}  [props.className]    Tailwind classes forwarded to <img>.
- * @param {string}  [props.loading]      "lazy" | "eager"  (default: "lazy")
- * @param {string}  [props.fetchPriority] "high" | "auto" | "low"
- * @param {number}  [props.width]
- * @param {number}  [props.height]
- */
 export default function ProductImage({
   src,
-  alt,
+  srcSet,
+  sizes,
+  alt = "",
   fallbackSeed,
   className = "",
   loading = "lazy",
-  // Accept camelCase from callers (React component convention), but map to
-  // the lowercase HTML attribute on the <img> to avoid the React warning on
-  // versions < 18.3 that don't recognise camelCase fetchPriority on DOM nodes.
   fetchPriority = "auto",
   width,
   height,
   draggable = false,
 }) {
-  const resolved = (!src || src.includes("picsum.photos"))
-    ? buildFallback(fallbackSeed || alt || "product", alt)
-    : src;
-
-  const [imgSrc, setImgSrc] = useState(resolved);
-  const [loaded, setLoaded] = useState(false);
+  const [retryWithBase, setRetryWithBase] = useState(false);
   const [errored, setErrored] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
-    const next = (!src || src.includes("picsum.photos"))
-      ? buildFallback(fallbackSeed || alt || "product", alt)
-      : src;
-    setImgSrc(next);
-    setErrored(false);
-  }, [src, fallbackSeed, alt]);
+  // Derive active image URL
+  let currentSrc = src;
+  let currentSrcSet = srcSet;
+
+  if (errored || !src || src.includes("picsum.photos")) {
+    currentSrc = buildFallback(fallbackSeed || alt || "product", alt);
+    currentSrcSet = undefined;
+  } else if (retryWithBase && /_\d+\.webp/.test(src)) {
+    // Retry once with the canonical _1600 base URL if a variant 404ed
+    currentSrc = src.replace(/_\d+\.webp/, "_1600.webp");
+    currentSrcSet = undefined;
+  }
 
   const handleError = () => {
-    if (!errored) {
+    if (!retryWithBase && /_\d+\.webp/.test(src || "")) {
+      setRetryWithBase(true);
+    } else if (!errored) {
       setErrored(true);
-      setImgSrc(buildFallback(fallbackSeed || alt || "product", alt));
     }
   };
 
-  const handleLoad = () => setLoaded(true);
+  const handleLoad = () => {
+    setLoaded(true);
+  };
 
   return (
-    <span className="relative block overflow-hidden">
-      {/* Shimmer skeleton shown until image loads */}
+    <span className="relative block h-full w-full overflow-hidden">
       {!loaded && (
         <span
           className="absolute inset-0 animate-pulse bg-slate-200"
           aria-hidden="true"
         />
       )}
-      {/* Use lowercase fetchpriority (HTML attr) — avoids React < 18.3 warning */}
       <img
-        src={imgSrc}
+        src={currentSrc}
+        srcSet={currentSrcSet}
+        sizes={sizes}
         alt={alt}
         width={width}
         height={height}

@@ -19,12 +19,28 @@ export const getAllVendorProducts = async () => {
     items: [firstPage, ...pages].flatMap((page) => page.items),
   };
 };
+export const uploadVendorProductImage = (file, { onProgress, signal } = {}) => {
+  const formData = new FormData();
+  formData.append("files", file);
+  return api
+    .post("/products/vendor/me/images", formData, {
+      timeout: 120000, // uploads need more than the global 15s
+      signal,
+      onUploadProgress: (e) =>
+        e.total && onProgress?.(Math.round((e.loaded / e.total) * 100)),
+      // do NOT set Content-Type: the browser must add the multipart boundary
+      headers: { "Content-Type": undefined },
+    })
+    .then((r) => r.data);
+};
+
 export const uploadVendorProductImages = (files) => {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
   return api
     .post("/products/vendor/me/images", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
+      headers: { "Content-Type": undefined },
     })
     .then((r) => r.data);
 };

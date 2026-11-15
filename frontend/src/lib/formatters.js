@@ -52,3 +52,12 @@ export const orderItemImage = (item) => {
     "order-item";
   return generateProductPlaceholderSvg(seed, item?.title_snapshot || "");
 };
+
+const VARIANT_RE = /_1600\.webp(\?.*)?$/;
+export const imageVariant = (url, width) =>
+  url && VARIANT_RE.test(url) ? url.replace(/_1600\.webp/, `_${width}.webp`) : url;
+
+export const imageSrcSet = (url) =>
+  VARIANT_RE.test(url || "")
+    ? [160, 480, 800, 1600].map((w) => `${imageVariant(url, w)} ${w}w`).join(", ")
+    : undefined;

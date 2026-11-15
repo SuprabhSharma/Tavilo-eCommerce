@@ -137,7 +137,13 @@ function AppInner() {
 
   useEffect(() => {
     bootstrapAuth()
-      .then(({ data }) => setSession({ access_token: data.access_token, user: data.user }))
+      .then(({ data }) => {
+        if (data?.access_token) {
+          setSession({ access_token: data.access_token, user: data.user });
+        } else {
+          setReady();
+        }
+      })
       .catch(() => setReady());
   }, [setReady, setSession]);
 

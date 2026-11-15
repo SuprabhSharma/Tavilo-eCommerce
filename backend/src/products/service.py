@@ -1,5 +1,6 @@
 import math
 import uuid
+from copy import copy
 from decimal import Decimal
 from typing import List, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -14,8 +15,10 @@ from src.db.models import Category, Product, ProductImage, Vendor
 
 from .image_storage import (
     MAX_PRODUCT_IMAGES,
+    PRODUCT_IMAGE_DIR,
     canonical_image_url,
     get_image_filename,
+    is_local_product_image_available,
     verify_image_access_token,
 )
 from .schemas import (
@@ -29,6 +32,19 @@ from .schemas import (
 
 
 class ProductService:
+    @staticmethod
+    def _with_available_images(product: Product) -> Product:
+        """Hide stale local-media references without deleting recoverable records."""
+        available_images = [
+            image for image in product.images
+            if is_local_product_image_available(image.url)
+        ]
+        if len(available_images) == len(product.images):
+            return product
+        response_product = copy(product)
+        response_product.images = available_images
+        return response_product
+
     async def _attach_images(
         self,
         product: Product,
@@ -56,6 +72,11 @@ class ProductService:
                         status_code=403,
                         detail="One or more product images are not authorized for this vendor.",
                     )
+                if not is_local_product_image_available(url):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="One or more uploaded product images are no longer available.",
+                    )
                 normalized_urls.append(canonical_image_url(filename))
                 continue
             parsed = urlsplit(url)
@@ -68,7 +89,27 @@ class ProductService:
             await session.delete(img)
         # add new
         for pos, url in enumerate(normalized_urls):
-            session.add(ProductImage(product_id=product.uid, url=url, position=pos))
+            width = None
+            height = None
+            fn = get_image_filename(url)
+            if fn:
+                path = PRODUCT_IMAGE_DIR / fn
+                if path.is_file():
+                    try:
+                        from PIL import Image
+                        with Image.open(path) as im:
+                            width, height = im.size
+                    except Exception:
+                        pass
+            session.add(
+                ProductImage(
+                    product_id=product.uid,
+                    url=url,
+                    position=pos,
+                    width=width,
+                    height=height,
+                )
+            )
 
     async def get_all(
         self,
@@ -143,7 +184,7 @@ class ProductService:
 
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = await session.exec(stmt)
-        items = result.all()
+        items = [self._with_available_images(product) for product in result.all()]
 
         return ProductListOut(
             items=items,
@@ -159,7 +200,8 @@ class ProductService:
             .join(Vendor, Product.vendor_id == Vendor.uid)
             .where(Product.slug == slug, Product.status == "active", Vendor.status == "approved")
         )
-        return result.first()
+        product = result.first()
+        return self._with_available_images(product) if product else None
 
     async def get_by_id(self, uid: uuid.UUID, session: AsyncSession) -> Optional[Product]:
         result = await session.exec(select(Product).where(Product.uid == uid))
@@ -189,7 +231,7 @@ class ProductService:
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = await session.exec(stmt)
         return VendorProductListOut(
-            items=result.all(),
+            items=[self._with_available_images(product) for product in result.all()],
             total=total,
             page=page,
             page_size=page_size,
@@ -248,8 +290,11 @@ class ProductService:
             else:
                 detail = "Product could not be saved because it conflicts with existing data."
             raise HTTPException(status_code=409, detail=detail) from exc
+        except HTTPException:
+            await session.rollback()
+            raise
         await session.refresh(product)
-        return product
+        return self._with_available_images(product)
 
     async def update(self, product: Product, data: ProductUpdate, session: AsyncSession) -> Product:
         next_price = data.price if data.price is not None else product.price
@@ -267,10 +312,14 @@ class ProductService:
         if data.stock is not None:
             product.stock = data.stock
         if data.image_urls is not None:
-            await self._attach_images(product, data.image_urls, product.vendor_id, session)
+            try:
+                await self._attach_images(product, data.image_urls, product.vendor_id, session)
+            except HTTPException:
+                await session.rollback()
+                raise
         await session.commit()
         await session.refresh(product)
-        return product
+        return self._with_available_images(product)
 
     async def delete(self, product: Product, session: AsyncSession) -> None:
         product.status = "archived"

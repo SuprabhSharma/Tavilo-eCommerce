@@ -152,6 +152,14 @@ async def check_catalog_rate(identifier: str) -> tuple[bool, int]:
     return await _consume("catalog", identifier, CATALOG_POLICY)
 
 
+VENDOR_UPLOAD_POLICY = RateLimitPolicy(window_seconds=600, max_attempts=60, lockout_seconds=600)
+
+
+async def check_vendor_upload_rate(identifier: str) -> tuple[bool, int]:
+    """60 uploads / 10 min per vendor."""
+    return await _consume("vendor_upload", identifier, VENDOR_UPLOAD_POLICY)
+
+
 async def clear_login_attempts(identifier: str) -> None:
     """Clear a successful login's bucket without exposing its identifier."""
     if _redis is None:

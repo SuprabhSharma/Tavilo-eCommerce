@@ -156,8 +156,8 @@ function CatalogRow({ query }) {
   if (query.isError) return <ErrorState onRetry={query.refetch} />;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {(query.data?.items || []).map((product) => (
-        <ProductCard key={product.uid} product={product} />
+      {(query.data?.items || []).map((product, idx) => (
+        <ProductCard key={product.uid} product={product} priority={idx < 4} />
       ))}
     </div>
   );

@@ -13,45 +13,24 @@ from decimal import Decimal
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from PIL import Image, ImageDraw
-
-from src.db.main import async_engine, init_db
-from src.db.models import (
-    Cart, Category, Order, OrderItem, Product, ProductImage,
-    SubOrder, User, Vendor, Wishlist,
-)
-from src.auth.utils import generate_passwd_hash
-from src.config import Config
+import shutil
+from pathlib import Path
 from src.products.image_storage import PRODUCT_IMAGE_DIR, canonical_image_url
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+SEED_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "seed_assets" / "products"
 
-def create_seed_product_image(idx: int, title: str) -> str:
-    """Generate a clean, high-performance local WebP product image."""
+
+def copy_seed_images_for_product(idx: int):
+    """Copy seed assets into PRODUCT_IMAGE_DIR if not present."""
     PRODUCT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"seed_product_{idx}.webp"
-    file_path = PRODUCT_IMAGE_DIR / filename
-    if not file_path.is_file():
-        palettes = [
-            ("#0F766E", "#F1F5F9", "#14B8A6"),
-            ("#1D4ED8", "#EFF6FF", "#3B82F6"),
-            ("#6D28D9", "#F5F3FF", "#8B5CF6"),
-            ("#C2410C", "#FFF7ED", "#F97316"),
-            ("#15803D", "#F0FDF4", "#22C55E"),
-            ("#BE123C", "#FFF1F2", "#F43F5E"),
-        ]
-        accent, bg, badge = palettes[idx % len(palettes)]
-        img = Image.new("RGB", (600, 600), color=bg)
-        draw = ImageDraw.Draw(img)
-        # Rounded white container in center
-        draw.rounded_rectangle([140, 140, 460, 460], radius=40, fill="#FFFFFF", outline=accent, width=4)
-        # Accent circular emblem
-        draw.ellipse([240, 240, 360, 360], fill=accent)
-        # Stylized checkmark/bag icon in white
-        draw.line([270, 300, 295, 325], fill="#FFFFFF", width=8)
-        draw.line([295, 325, 335, 275], fill="#FFFFFF", width=8)
-        img.save(file_path, "WEBP", quality=85)
-    return canonical_image_url(filename)
+    for shot in (1, 2, 3):
+        for w in [160, 480, 800, 1600]:
+            fn = f"seed_{idx:03d}_{shot}_{w}.webp"
+            dst = PRODUCT_IMAGE_DIR / fn
+            if not dst.is_file():
+                src = SEED_ASSETS_DIR / fn
+                if src.is_file():
+                    shutil.copy2(src, dst)
 
 
 def slug(s: str) -> str:
@@ -224,8 +203,18 @@ async def seed():
             )
             session.add(p)
             await session.flush()
-            # add image placeholder
-            session.add(ProductImage(product_id=p.uid, url=f"https://picsum.photos/seed/{idx}/400/400", position=0))
+            # add real seed images (3 angles per product)
+            copy_seed_images_for_product(idx)
+            for shot in (1, 2, 3):
+                session.add(
+                    ProductImage(
+                        product_id=p.uid,
+                        url=f"/api/v1/products/images/seed_{idx:03d}_{shot}_1600.webp",
+                        position=shot - 1,
+                        width=1600,
+                        height=1600,
+                    )
+                )
 
         print("Skipping sample reviews: ratings require delivered order lines.")
 

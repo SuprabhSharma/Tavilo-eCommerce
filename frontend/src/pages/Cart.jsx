@@ -9,9 +9,9 @@ import {
   updateCartItem,
 } from "../api/shop";
 import ProductPrice from "../components/ProductPrice";
+import ProductImage from "../components/ProductImage";
 import { Button, EmptyState, ErrorState, Skeleton } from "../components/ui";
-import { formatCurrency, productImage } from "../lib/formatters";
-import { generateProductPlaceholderSvg } from "../lib/placeholders";
+import { formatCurrency, imageVariant, productImage } from "../lib/formatters";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 
@@ -165,22 +165,12 @@ export default function Cart() {
                 className="flex flex-col gap-2 rounded-card border border-line bg-white p-3 sm:gap-4 sm:p-4"
               >
                 <div className="flex gap-3 sm:gap-5">
-                  <img
-                    src={productImage(item.product)}
+                  <ProductImage
+                    src={imageVariant(productImage(item.product), 160)}
                     alt={item.product_title || ""}
                     width="96"
                     height="96"
                     loading="lazy"
-                    decoding="async"
-                    onError={(e) => {
-                      if (!e.currentTarget.dataset.errored) {
-                        e.currentTarget.dataset.errored = "1";
-                        e.currentTarget.src = generateProductPlaceholderSvg(
-                          item.product_slug || item.product_id || "cart-item",
-                          item.product_title,
-                        );
-                      }
-                    }}
                     className="h-24 w-24 rounded-lg bg-slate-100 object-cover"
                   />
                   <div className="min-w-0 flex-1">

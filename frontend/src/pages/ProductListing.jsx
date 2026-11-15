@@ -117,10 +117,11 @@ export default function ProductListing() {
             {products.data.total} products
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.data.items.map((product) => (
+            {products.data.items.map((product, idx) => (
               <ProductCard
                 key={product.uid}
                 product={product}
+                priority={idx < 4}
               />
             ))}
           </div>

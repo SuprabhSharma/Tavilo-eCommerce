@@ -43,6 +43,8 @@ RUN mkdir -p /app/uploads/products && \
 # Copy application source
 COPY --chown=appuser:appgroup src/ ./src/
 COPY --chown=appuser:appgroup migrations/ ./migrations/
+COPY --chown=appuser:appgroup scripts/ ./scripts/
+COPY --chown=appuser:appgroup seed_assets/ ./seed_assets/
 COPY --chown=appuser:appgroup alembic.ini .
 
 EXPOSE 8000

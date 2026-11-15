@@ -11,6 +11,8 @@ dist/
 
 backend/tests/__pycache__/
 backend/tests/.pytest_cache/
+backend/.pytest_tmp/
+.pytest_tmp/
 backend/uploads/
 .vscode/settings.json
 frontend/.env.development

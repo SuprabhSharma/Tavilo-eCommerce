@@ -23,6 +23,8 @@ class ProductImageOut(BaseModel):
     uid: uuid.UUID
     url: str
     position: int
+    width: int | None = None
+    height: int | None = None
 
 
 class ProductSummaryOut(BaseModel):
