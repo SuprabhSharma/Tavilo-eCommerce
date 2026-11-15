@@ -12,7 +12,7 @@ import re
 import shutil
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlmodel import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -44,24 +44,22 @@ async def repair_images(apply_changes: bool = False):
     missing_report = []
 
     async with session_factory() as session:
-        # Query all products with their vendor, user, and images
+        # Query all products with their vendor and user
         stmt = (
-            select(Product)
-            .join(Vendor, Product.vendor_id == Vendor.uid)
-            .join(User, Vendor.user_id == User.uid)
+            select(Product, Vendor, User)
+            .join(Vendor, Product.vendor_id == Vendor.uid, isouter=True)
+            .join(User, Vendor.user_id == User.uid, isouter=True)
         )
         result = await session.exec(stmt)
-        products = result.unique().all()
+        rows = result.all()
 
-        for p_idx, product in enumerate(products):
+        for p_idx, (product, vendor, user) in enumerate(rows):
             # Query images for this product
             img_stmt = select(ProductImage).where(ProductImage.product_id == product.uid).order_by(ProductImage.position)
             img_res = await session.exec(img_stmt)
             images = img_res.all()
 
-            vendor_user = product.vendor.user if product.vendor else None
-            is_seed_account = vendor_user and vendor_user.email and vendor_user.email.endswith("@marketplace.com")
-
+            is_seed_account = user is not None and user.email is not None and user.email.endswith("@marketplace.com")
             has_picsum = any("picsum.photos" in (img.url or "") for img in images)
 
             if has_picsum and is_seed_account:
@@ -80,7 +78,8 @@ async def repair_images(apply_changes: bool = False):
                             idx = int(pm.group(1)) % 60
                             break
 
-                print(f"[REPLACE PICSUM] Product #{idx:03d} '{product.title}' (Vendor: {vendor_user.email}) -> seed images")
+                user_email = user.email if user else "seed"
+                print(f"[REPLACE PICSUM] Product #{idx:03d} '{product.title}' (Vendor: {user_email}) -> seed images")
 
                 # Ensure all 3 shots x 4 variants are in PRODUCT_IMAGE_DIR
                 for shot in (1, 2, 3):
@@ -114,9 +113,11 @@ async def repair_images(apply_changes: bool = False):
                         path = PRODUCT_IMAGE_DIR / fn
                         if not path.is_file():
                             missing_files_count += 1
+                            v_name = vendor.store_name if vendor else "Unknown"
+                            u_email = user.email if user else "No email"
                             missing_report.append(
                                 f"  • Product: {product.title} (ID: {product.uid})\n"
-                                f"    Vendor: {product.vendor.store_name if product.vendor else 'Unknown'} ({vendor_user.email if vendor_user else 'No email'})\n"
+                                f"    Vendor: {v_name} ({u_email})\n"
                                 f"    Missing URL: {url}"
                             )
                         else:

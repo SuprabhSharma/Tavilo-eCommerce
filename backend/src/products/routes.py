@@ -65,7 +65,7 @@ async def get_approved_vendor(current_user: User = Depends(get_verified_user), s
 @product_router.get("", response_model=ProductListOut)
 async def list_products(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=50),
+    page_size: int = Query(20, ge=1, le=200),
     category: str | None = Query(None),
     vendor: str | None = Query(None),
     q: str | None = Query(None, min_length=1, max_length=100),

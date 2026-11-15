@@ -12,7 +12,7 @@ import asyncio
 import time
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlmodel import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
