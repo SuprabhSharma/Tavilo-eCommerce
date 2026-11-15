@@ -18,7 +18,6 @@ MIN_SIDE_PX = 500
 RECOMMENDED_SIDE_PX = 1000
 Image.MAX_IMAGE_PIXELS = 50_000_000
 VARIANTS = (("thumb", 160, 78), ("card", 480, 80), ("detail", 800, 82), ("zoom", 1600, 84))
-VARIANT_DIMS = {"thumb": 160, "card": 480, "detail": 800, "zoom": 1600}
 MAX_PRODUCT_IMAGES = 10
 IMAGE_URL_PREFIX = "/api/v1/products/images/"
 STAGED_IMAGE_TOKEN_MAX_AGE = 24 * 60 * 60  # 24 hours (fixes RC5)

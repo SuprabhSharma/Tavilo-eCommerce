@@ -53,7 +53,6 @@ import {
   updateVendorProfile,
   updateVendorSubOrderStatus,
   uploadVendorProductImage,
-  uploadVendorProductImages,
 } from "../api/vendor";
 import { BackLink, PageHeader } from "../components/Page";
 import ProductPrice from "../components/ProductPrice";

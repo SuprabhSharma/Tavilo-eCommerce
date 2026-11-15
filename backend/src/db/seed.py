@@ -15,7 +15,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 import shutil
 from pathlib import Path
-from src.products.image_storage import PRODUCT_IMAGE_DIR, canonical_image_url
+from src.products.image_storage import PRODUCT_IMAGE_DIR
 
 SEED_ASSETS_DIR = Path(__file__).resolve().parent.parent.parent / "seed_assets" / "products"
 

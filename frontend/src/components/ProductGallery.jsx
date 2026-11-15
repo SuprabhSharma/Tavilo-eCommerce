@@ -13,18 +13,7 @@ function buildFallback(seed, title) {
 function normaliseImages(images, fallback, alt) {
   const source = (images || [])
     .map((image) => (typeof image === "string" ? { url: image } : image))
-    .filter((image) => image?.url)
-    .map((image) => {
-      // If image URL is an unreliable third-party placeholder like picsum,
-      // map to instant local SVG to prevent blocking or slow network requests.
-      if (image.url.includes("picsum.photos")) {
-        return {
-          ...image,
-          url: buildFallback(image.uid || alt || "product", alt),
-        };
-      }
-      return image;
-    });
+    .filter((image) => image?.url);
   return source.length ? source : [{ url: fallback || buildFallback("product", alt) }];
 }
 

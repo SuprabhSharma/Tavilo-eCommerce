@@ -31,9 +31,7 @@ export const discountPercent = (price, mrp) => {
 };
 export const productImage = (product, index = 0) => {
   const url = product?.images?.[index]?.url;
-  // If the image URL is missing or points to an unreliable external placeholder
-  // like picsum.photos, return the instant local SVG placeholder.
-  if (url && !url.includes("picsum.photos")) return url;
+  if (url) return url;
   const seed = product?.slug || product?.uid || "product";
   return generateProductPlaceholderSvg(seed, product?.title || "");
 };
@@ -43,7 +41,7 @@ export const orderItemImage = (item) => {
     item?.image_url ||
     item?.images?.[0]?.url ||
     item?.product?.images?.[0]?.url;
-  if (url && !url.includes("picsum.photos")) return url;
+  if (url) return url;
   const seed =
     item?.product_slug ||
     item?.product_id ||

@@ -7,10 +7,10 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.client_ip import get_client_ip
-from src.auth.dependencies import RoleChecker, get_verified_user
+from src.auth.dependencies import get_verified_user
 from src.auth.rate_limit import check_catalog_rate, check_vendor_upload_rate
 from src.db.main import get_session
-from src.db.models import Product, ProductImage, User, Vendor
+from src.db.models import User, Vendor
 from src.errors import InsufficientPermission, ProductNotFound, RateLimitUnavailable, VendorNotFound
 
 from .schemas import (
@@ -26,11 +26,9 @@ from .service import ProductService
 from .image_storage import (
     IMAGE_URL_PREFIX,
     PRODUCT_IMAGE_DIR,
-    canonical_image_url,
     get_image_filename,
     save_product_images,
     staged_image_url,
-    verify_image_access_token,
 )
 
 product_router = APIRouter()

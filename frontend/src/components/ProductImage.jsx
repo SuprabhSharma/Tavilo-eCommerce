@@ -35,7 +35,7 @@ export default function ProductImage({
   let currentSrc = src;
   let currentSrcSet = srcSet;
 
-  if (errored || !src || src.includes("picsum.photos")) {
+  if (errored || !src) {
     currentSrc = buildFallback(fallbackSeed || alt || "product", alt);
     currentSrcSet = undefined;
   } else if (retryWithBase && /_\d+\.webp/.test(src)) {

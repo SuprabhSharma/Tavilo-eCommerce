@@ -34,16 +34,6 @@ export const uploadVendorProductImage = (file, { onProgress, signal } = {}) => {
     .then((r) => r.data);
 };
 
-export const uploadVendorProductImages = (files) => {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-  return api
-    .post("/products/vendor/me/images", formData, {
-      timeout: 120000,
-      headers: { "Content-Type": undefined },
-    })
-    .then((r) => r.data);
-};
 export const createVendorProduct = (payload) =>
   api.post("/products/vendor/me", payload).then((r) => r.data);
 export const updateVendorProduct = (uid, payload) =>

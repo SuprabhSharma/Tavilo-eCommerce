@@ -125,8 +125,6 @@ class ProductService:
         in_stock: Optional[bool] = None,
         sort: str = "newest",
     ) -> ProductListOut:
-        from src.db.models import Category
-
         stmt = select(Product).join(Vendor, Product.vendor_id == Vendor.uid).where(Product.status == "active", Vendor.status == "approved")
 
         if ids:
