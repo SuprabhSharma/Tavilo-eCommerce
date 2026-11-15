@@ -151,6 +151,7 @@ services:
       - "443:443"
     volumes:
       - /opt/tavilo/ssl:/etc/nginx/ssl:ro
+      - media_uploads:/var/media:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/healthz || exit 1"]
       interval: 15s
