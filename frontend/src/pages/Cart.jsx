@@ -165,20 +165,45 @@ export default function Cart() {
                 className="flex flex-col gap-2 rounded-card border border-line bg-white p-3 sm:gap-4 sm:p-4"
               >
                 <div className="flex gap-3 sm:gap-5">
-                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100">
-                    <ProductImage
-                      src={imageVariant(productImage(item.product), 160)}
-                      alt={item.product_title || ""}
-                      width="96"
-                      height="96"
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
+                  {item.product?.slug ? (
+                    <Link
+                      to={`/p/${item.product.slug}`}
+                      className="h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100 transition hover:opacity-90"
+                    >
+                      <ProductImage
+                        src={imageVariant(productImage(item.product), 160)}
+                        alt={item.product_title || ""}
+                        width="96"
+                        height="96"
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    </Link>
+                  ) : (
+                    <div className="h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                      <ProductImage
+                        src={imageVariant(productImage(item.product), 160)}
+                        alt={item.product_title || ""}
+                        width="96"
+                        height="96"
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 text-sm font-semibold">
-                      {item.product_title}
-                    </p>
+                    {item.product?.slug ? (
+                      <Link
+                        to={`/p/${item.product.slug}`}
+                        className="line-clamp-2 text-sm font-semibold text-ink transition hover:text-brand-600"
+                      >
+                        {item.product_title}
+                      </Link>
+                    ) : (
+                      <p className="line-clamp-2 text-sm font-semibold">
+                        {item.product_title}
+                      </p>
+                    )}
                     <ProductPrice
                       price={item.unit_price}
                       mrp={item.product?.mrp}
