@@ -165,14 +165,16 @@ export default function Cart() {
                 className="flex flex-col gap-2 rounded-card border border-line bg-white p-3 sm:gap-4 sm:p-4"
               >
                 <div className="flex gap-3 sm:gap-5">
-                  <ProductImage
-                    src={imageVariant(productImage(item.product), 160)}
-                    alt={item.product_title || ""}
-                    width="96"
-                    height="96"
-                    loading="lazy"
-                    className="h-24 w-24 rounded-lg bg-slate-100 object-cover"
-                  />
+                  <div className="h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                    <ProductImage
+                      src={imageVariant(productImage(item.product), 160)}
+                      alt={item.product_title || ""}
+                      width="96"
+                      height="96"
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 text-sm font-semibold">
                       {item.product_title}

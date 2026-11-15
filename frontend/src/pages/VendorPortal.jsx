@@ -2143,11 +2143,13 @@ function VendorOrders({ profile }) {
                             className="flex min-w-0 items-center justify-between gap-3 p-3 text-sm"
                           >
                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                              <ProductImage
-                                src={orderItemImage(item)}
-                                alt={item.title_snapshot}
-                                className="h-9 w-9 shrink-0 rounded-md object-cover bg-slate-100"
-                              />
+                              <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-slate-100">
+                                <ProductImage
+                                  src={orderItemImage(item)}
+                                  alt={item.title_snapshot}
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
                               <div className="min-w-0">
                                 <p className="truncate font-semibold text-ink">
                                   {item.title_snapshot}

@@ -7,7 +7,7 @@
  *  • One-time variant fallback to base _1600 URL before SVG fallback
  *  • decoding="async" + fetchpriority for LCP images
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { generateProductPlaceholderSvg } from "../lib/placeholders";
 
 function buildFallback(seed, title) {
@@ -30,6 +30,14 @@ export default function ProductImage({
   const [retryWithBase, setRetryWithBase] = useState(false);
   const [errored, setErrored] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef(null);
+
+  // Check if image is already cached/complete on mount or when src changes
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [src, retryWithBase]);
 
   // Derive active image URL
   let currentSrc = src;
@@ -44,6 +52,8 @@ export default function ProductImage({
     currentSrcSet = undefined;
   }
 
+  const isDataUri = currentSrc?.startsWith("data:");
+
   const handleError = () => {
     if (!retryWithBase && /_\d+\.webp/.test(src || "")) {
       setRetryWithBase(true);
@@ -57,14 +67,15 @@ export default function ProductImage({
   };
 
   return (
-    <span className="relative block h-full w-full overflow-hidden">
-      {!loaded && (
+    <span className={`relative block overflow-hidden ${className}`}>
+      {!loaded && !isDataUri && (
         <span
           className="absolute inset-0 animate-pulse bg-slate-200"
           aria-hidden="true"
         />
       )}
       <img
+        ref={imgRef}
         src={currentSrc}
         srcSet={currentSrcSet}
         sizes={sizes}
@@ -77,7 +88,9 @@ export default function ProductImage({
         draggable={draggable}
         onError={handleError}
         onLoad={handleLoad}
-        className={`${className} ${loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-300`}
+        className={`h-full w-full object-cover transition-opacity duration-300 ${
+          loaded || isDataUri ? "opacity-100" : "opacity-0"
+        }`}
       />
     </span>
   );

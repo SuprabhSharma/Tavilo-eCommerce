@@ -172,14 +172,16 @@ export default function Wishlist() {
               key={item.uid}
               className="flex items-center gap-4 p-4"
             >
-              <ProductImage
-                src={imageVariant(productImage(item.product), 160)}
-                alt={item.product_title || ""}
-                width="72"
-                height="72"
-                loading="lazy"
-                className="h-[72px] w-[72px] shrink-0 rounded-lg bg-slate-100 object-cover"
-              />
+              <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                <ProductImage
+                  src={imageVariant(productImage(item.product), 160)}
+                  alt={item.product_title || ""}
+                  width="72"
+                  height="72"
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              </div>
               <Link to={`/p/${item.product_slug}`} className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold hover:text-brand-600">
                   {item.product_title}
