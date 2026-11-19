@@ -28,10 +28,10 @@ export const queryClient = new QueryClient({
   },
 });
 
-// Cart: always re-fetch after mutations; real-time accuracy matters.
+// Cart: 10s stale window + no window-focus refetches to keep main-thread tasks < 50ms
 queryClient.setQueryDefaults(["cart"], {
-  staleTime: 0,
-  refetchOnWindowFocus: true,
+  staleTime: 10_000,
+  refetchOnWindowFocus: false,
 });
 
 // Categories change very rarely — cache for the entire session.
@@ -46,8 +46,8 @@ queryClient.setQueryDefaults(["products"], {
   staleTime: 2 * 60 * 1000,
 });
 
-// Wishlist: same as cart for consistency.
+// Wishlist: same policy as cart to eliminate window-focus task spikes.
 queryClient.setQueryDefaults(["wishlist"], {
-  staleTime: 0,
-  refetchOnWindowFocus: true,
+  staleTime: 10_000,
+  refetchOnWindowFocus: false,
 });
