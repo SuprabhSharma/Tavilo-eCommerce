@@ -2,6 +2,14 @@ import { api } from "../lib/apiClient";
 export const getCart = () => api.get("/cart").then((r) => r.data);
 export const addCartItem = (product_id, quantity = 1) =>
   api.post("/cart", { product_id, quantity }).then((r) => r.data);
+/**
+ * Idempotent upsert for Buy Now.
+ * PUT /cart — ensures product is in cart without accumulating quantity.
+ * If the product is already in cart, the existing qty is preserved server-side.
+ * Safe to call multiple times (network retries, double-clicks, etc.).
+ */
+export const upsertCartItem = (product_id, quantity = 1) =>
+  api.put("/cart", { product_id, quantity }).then((r) => r.data);
 export const updateCartItem = (uid, quantity) =>
   api.patch(`/cart/${uid}`, { quantity }).then((r) => r.data);
 export const removeCartItem = (uid) =>

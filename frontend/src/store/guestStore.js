@@ -123,14 +123,17 @@ export const useGuestStore = create((set, get) => ({
       let items;
       if (existing) {
         const newQty = Math.min(MAX_QUANTITY, existing.quantity + qty);
-        items = state.cart.items.map((i) =>
-          i.productId === productId ? { ...i, quantity: newQty } : i,
-        );
+        // Bring re-added item to the top with current timestamp
+        items = [
+          { productId, quantity: newQty, addedAt: new Date().toISOString() },
+          ...state.cart.items.filter((i) => i.productId !== productId),
+        ];
       } else {
         if (state.cart.items.length >= MAX_CART_ITEMS) return state;
+        // Prepend new item to the top so most recently added appears first
         items = [
-          ...state.cart.items,
           { productId, quantity: qty, addedAt: new Date().toISOString() },
+          ...state.cart.items,
         ];
       }
       const cart = { ...state.cart, items };

@@ -13,6 +13,47 @@
     <meta property="og:image" content="/tavilo-logo.webp" />
     <link rel="icon" type="image/webp" href="/tavilo-bag.webp" />
     <title>Tavilo | Good finds. Trusted stores.</title>
+
+    <!--
+      Performance hints
+      ─────────────────
+      preconnect: open TLS connection to Google Fonts early so the CSS
+                  arrives before the browser needs it.
+      dns-prefetch: fallback for browsers that don't support preconnect.
+      preload logo: the logo is above-the-fold; fetch it at the highest
+                    priority so it doesn't delay LCP.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+
+    <!-- Preload the logo — it is always visible in the header (LCP candidate). -->
+    <link rel="preload" href="/tavilo-logo.webp" as="image" fetchpriority="high" />
+
+    <!--
+      Security headers NOTE
+      ─────────────────────
+      X-Frame-Options, X-Content-Type-Options, and CSP frame-ancestors are
+      HTTP response headers — browsers silently ignore them when set via
+      <meta>. They are correctly set by nginx (nginx.conf) and the Vite
+      dev server headers config (vite.config.js) for every response.
+      Do NOT add them here.
+
+      The only CSP directives that ARE valid in a <meta> tag are:
+      default-src, script-src, style-src, img-src, font-src, connect-src.
+      frame-ancestors is explicitly forbidden in <meta> by the CSP spec.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src  'self' 'unsafe-inline';
+      style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src    'self' https://fonts.gstatic.com;
+      img-src     'self' data: blob: https:;
+      connect-src 'self' https:;
+    " />
   </head>
-  <body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

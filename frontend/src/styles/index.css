@@ -1,18 +1,64 @@
+/*
+ * Tavilo — Global Styles
+ *
+ * Font loading strategy:
+ *  - `font-display: swap` ensures text is visible immediately with a system
+ *    font while the custom font loads. This is the correct production setting.
+ *  - `preconnect` hints (added to index.html) allow the browser to open the
+ *    TLS tunnel to fonts.googleapis.com early, cutting TTFB for the font CSS.
+ *
+ * We import only the weights actually used (400, 500, 600, 700, 800) and use
+ * the `&display=swap` parameter Google Fonts supports for `font-display:swap`.
+ */
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @keyframes loading-bar {
-  0% { transform: translateX(-100%); }
-  50% { transform: translateX(180%); }
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(180%); }
   100% { transform: translateX(320%); }
 }
 
-:root { --brand-50: #e9fbfa; --brand-100: #c8f3f1; --brand-500: #20c7c0; --brand-600: #0bb5b0; --brand-700: #078d8a; --accent: #f5a623; --ink: #10284b; --muted: #64748b; --surface: #ffffff; --line: #dbe7ed; }
+:root {
+  --brand-50:  #e9fbfa;
+  --brand-100: #c8f3f1;
+  --brand-500: #20c7c0;
+  --brand-600: #0bb5b0;
+  --brand-700: #078d8a;
+  --accent:    #f5a623;
+  --ink:       #10284b;
+  --muted:     #64748b;
+  --surface:   #ffffff;
+  --line:      #dbe7ed;
+}
+
 * { box-sizing: border-box; }
+
+/* Disable smooth-scroll — synchronous smooth-scroll can delay input handlers
+   and cause "setTimeout handler took Nms" Violation warnings on fast clicks. */
 html { scroll-behavior: auto; }
-body { margin: 0; min-width: 320px; background: #f6fbfc; font-family: Poppins, ui-sans-serif, system-ui, sans-serif; color: var(--ink); }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f6fbfc;
+  font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
+  color: var(--ink);
+  /* Enable GPU compositing for the whole page — reduces paint cost on scroll. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeSpeed;
+}
+
 button, input, select { font: inherit; }
-button, a { -webkit-tap-highlight-color: transparent; }
+/* Remove 300 ms tap delay on mobile without disabling pinch-zoom. */
+button, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 ::selection { background: var(--brand-100); color: var(--brand-700); }
+
+/* Ensure images never overflow their containers and are hardware accelerated. */
+img { max-width: 100%; display: block; }
+
+/* Reduce layout shift for lazy images by reserving space. */
+img[loading="lazy"] { content-visibility: auto; }

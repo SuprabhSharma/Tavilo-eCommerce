@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import { Check, Heart, ShoppingBag, Trash2 } from "lucide-react";
+import { Heart, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   addCartItem,
   getCart,
@@ -17,6 +17,7 @@ import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 
 export default function Wishlist() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((state) => state.accessToken);
   const isReady = useAuthStore((state) => state.isReady);
@@ -206,10 +207,10 @@ export default function Wishlist() {
                     : guestCartItems.some((i) => i.productId === item.product_id);
                   return (
                     <button
-                      aria-label={inCart ? `${item.product_title} is in cart` : `Add ${item.product_title} to cart`}
-                      onClick={() => handleAddToCart(item.product)}
+                      aria-label={inCart ? `Go to cart (${item.product_title})` : `Add ${item.product_title} to cart`}
+                      onClick={() => (inCart ? navigate("/cart") : handleAddToCart(item.product))}
                       disabled={
-                        !item.product?.is_available ||
+                        (!item.product?.is_available && !inCart) ||
                         (loggedIn && authAddToCartMutation.isPending)
                       }
                       className={`grid h-10 w-10 place-items-center rounded-lg transition ${
@@ -217,9 +218,9 @@ export default function Wishlist() {
                           ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                           : "text-brand-600 hover:bg-brand-50"
                       } disabled:opacity-40`}
-                      title={inCart ? "In cart (click to add more)" : "Add to cart"}
+                      title={inCart ? "Go to cart" : "Add to cart"}
                     >
-                      {inCart ? <Check size={17} strokeWidth={2.5} /> : <ShoppingBag size={17} />}
+                      {inCart ? <ShoppingCart size={17} strokeWidth={2.2} /> : <ShoppingBag size={17} />}
                     </button>
                   );
                 })()}
