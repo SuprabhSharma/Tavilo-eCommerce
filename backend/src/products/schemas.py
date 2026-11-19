@@ -36,12 +36,26 @@ class ProductSummaryOut(BaseModel):
     price: Decimal
     mrp: Decimal | None = None
     stock: int = Field(exclude=True)
+    # Vendor-set per-order cap (NULL = no cap beyond real stock).
+    # Exposed so the cart UI can disable + before hitting the backend.
+    max_order_qty: int | None = None
     images: list[ProductImageOut] = []
 
     @computed_field
     @property
     def is_available(self) -> bool:
         return self.stock > 0
+
+    @computed_field
+    @property
+    def available_stock(self) -> int:
+        """
+        Real quantity a customer may still add.
+        Capped to vendor's max_order_qty when set.
+        Never goes below 0.
+        """
+        effective_max = self.max_order_qty if self.max_order_qty is not None else self.stock
+        return max(0, min(self.stock, effective_max))
 
     @computed_field
     @property
@@ -55,6 +69,9 @@ class ProductBase(BaseModel):
     price: Decimal = Field(..., gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
     stock: int = Field(..., gt=0)
+    # Flipkart/Amazon-style per-order cap (NULL = only real stock limits qty).
+    # Must be >= 1 when provided.  Validated here AND enforced by DB CHECK.
+    max_order_qty: int | None = Field(default=None, ge=1)
     sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     attributes: dict | None = None
@@ -110,6 +127,8 @@ class ProductUpdate(BaseModel):
     price: Decimal | None = Field(default=None, gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
     stock: int | None = Field(default=None, ge=0)
+    # Allow vendors to change or clear the per-order cap (set to null to remove cap).
+    max_order_qty: int | None = Field(default=None, ge=1)
     sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     status: str | None = None
@@ -180,6 +199,7 @@ class ProductOut(BaseModel):
     price: Decimal
     mrp: Decimal | None = None
     stock: int
+    max_order_qty: int | None = None
     sku: str | None = None
     status: str
     rating_avg: Decimal
@@ -209,6 +229,8 @@ class ProductPublicOut(BaseModel):
     rating_avg: Decimal
     rating_count: int
     stock: int = Field(exclude=True)
+    # Expose the vendor-set order cap so the UI can disable + at the right limit.
+    max_order_qty: int | None = None
     attributes: dict | None = None
     vendor: VendorMiniOut | None = None
     category: CategoryMiniOut | None = None
@@ -219,6 +241,17 @@ class ProductPublicOut(BaseModel):
     @property
     def is_available(self) -> bool:
         return self.stock > 0
+
+    @computed_field
+    @property
+    def available_stock(self) -> int:
+        """
+        Real quantity a customer may still add.
+        Capped to vendor's max_order_qty when set.
+        Never goes below 0.
+        """
+        effective_max = self.max_order_qty if self.max_order_qty is not None else self.stock
+        return max(0, min(self.stock, effective_max))
 
     @computed_field
     @property

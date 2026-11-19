@@ -303,6 +303,14 @@ class Product(SQLModel, table=True):
         default=None, sa_column=Column(Numeric(12, 2), nullable=True)
     )
     stock: int = Field(default=0)
+    # Flipkart/Amazon-style per-order quantity cap set by vendor.
+    # NULL = no cap (real stock is the only constraint).
+    # When set, customers cannot add more than this qty per order regardless
+    # of available stock.  Enforced at DB level by CHECK constraint.
+    max_order_qty: Optional[int] = Field(
+        default=None,
+        sa_column=Column(pg.INTEGER, nullable=True),
+    )
     sku: Optional[str] = Field(default=None, sa_column=Column(pg.VARCHAR(80), unique=True))
     # status: draft | active | archived
     status: str = Field(
@@ -470,7 +478,10 @@ class Cart(SQLModel, table=True):
     )
     items: list["CartItem"] = Relationship(
         back_populates="cart",
-        sa_relationship_kwargs={"lazy": "selectin"},
+        sa_relationship_kwargs={
+            "lazy": "selectin",
+            "order_by": "desc(CartItem.created_at)",
+        },
     )
 
     def __repr__(self):
@@ -486,9 +497,18 @@ class CartItem(SQLModel, table=True):
     cart_id: uuid.UUID = Field(foreign_key="carts.uid", nullable=False)
     product_id: uuid.UUID = Field(foreign_key="products.uid", nullable=False)
     quantity: int = Field(default=1, ge=1)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(
+            pg.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=sa_text("now()"),
+        ),
+    )
 
     __table_args__ = (
         UniqueConstraint("cart_id", "product_id", name="uq_cart_product"),
+        Index("ix_cart_items_cart_id_created_at", "cart_id", "created_at"),
     )
 
     cart: Optional[Cart] = Relationship(
