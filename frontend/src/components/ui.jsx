@@ -15,16 +15,31 @@ export const Button = ({
   children,
   className = "",
   ...props
-}) => (
-  <button
-    className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${variant === "primary" ? "bg-brand-600 text-white hover:bg-brand-700" : variant === "soft" ? "bg-brand-50 text-brand-700 hover:bg-brand-100" : variant === "danger" ? "bg-red-50 text-red-700 hover:bg-red-100" : "border border-line bg-white text-ink hover:bg-slate-50"} ${className}`}
-    disabled={loading || props.disabled}
-    {...props}
-  >
-    {loading && <LoaderCircle size={16} className="animate-spin" />}
-    {children}
-  </button>
-);
+}) => {
+  const variantStyles =
+    variant === "primary"
+      ? "bg-brand-600 text-white hover:bg-brand-700"
+      : variant === "white"
+      ? "bg-white text-slate-900 hover:bg-slate-100 shadow-sm font-semibold"
+      : variant === "accent"
+      ? "bg-brand-400 text-slate-950 hover:bg-brand-300 font-bold"
+      : variant === "soft"
+      ? "bg-brand-50 text-brand-700 hover:bg-brand-100"
+      : variant === "danger"
+      ? "bg-red-50 text-red-700 hover:bg-red-100"
+      : "border border-line bg-white text-ink hover:bg-slate-50";
+
+  return (
+    <button
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${variantStyles} ${className}`}
+      disabled={loading || props.disabled}
+      {...props}
+    >
+      {loading && <LoaderCircle size={16} className="animate-spin" />}
+      {children}
+    </button>
+  );
+};
 export const Input = forwardRef(
   ({ label, error, className = "", ...props }, ref) => (
     <label className="block space-y-1.5">

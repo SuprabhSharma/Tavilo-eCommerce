@@ -116,6 +116,12 @@ class ReviewService:
         try:
             await session.flush()
         except IntegrityError:
+            # Race-condition guard: a concurrent request inserted the same
+            # (user_id, product_id, verified_purchase=True) row between our
+            # SELECT and this flush.  The DB-level partial unique index
+            # `uq_review_user_product_verified` catches it and raises
+            # IntegrityError — this is the production-safe duplicate prevention
+            # pattern (optimistic insert + constraint catch).
             await session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -157,6 +163,8 @@ class ReviewService:
         if not review:
             raise ReviewNotFound()
         review.rating = review_data.rating
+        # review_data.review_text is already strip()-validated by the schema's
+        # @field_validator, so this assignment is safe (no extra sanitization needed).
         review.review_text = review_data.review_text
         review.updated_at = datetime.now()
         session.add(review)

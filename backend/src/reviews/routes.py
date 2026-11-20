@@ -9,7 +9,7 @@ from src.db.main import get_session
 from src.db.models import Product, Review, User
 from src.errors import ProductNotFound
 
-from .schemas import ReviewCreateModel, ReviewOut, ReviewStatusOut
+from .schemas import ReviewCreateModel, ReviewOut, ReviewPublicOut, ReviewStatusOut
 from .service import ReviewService
 
 product_review_router = APIRouter()
@@ -18,7 +18,7 @@ service = ReviewService()
 
 # ── Product-scoped reviews ────────────────────────────────────────────────────
 
-@product_review_router.get("/products/{slug}/reviews", response_model=list[ReviewOut])
+@product_review_router.get("/products/{slug}/reviews", response_model=list[ReviewPublicOut])
 async def get_product_reviews(
     slug: str,
     limit: int = Query(20, ge=1, le=100),
@@ -45,6 +45,8 @@ async def get_product_reviews(
 @product_review_router.get("/products/{slug}/review-status", response_model=ReviewStatusOut)
 async def get_product_review_status(
     slug: str,
+    # Auth is REQUIRED — guests calling this endpoint receive 401 Unauthorized.
+    # The frontend must only call this endpoint when isLoggedIn=true.
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):

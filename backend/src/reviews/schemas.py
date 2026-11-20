@@ -17,14 +17,24 @@ class ReviewCreateModel(BaseModel):
         return value
 
 
-class ReviewOut(BaseModel):
+class ReviewPublicOut(BaseModel):
+    """Returned in the public review list — no PII (user_id/product_id omitted)."""
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
     rating: int
     review_text: str
-    user_id: uuid.UUID | None = None
-    product_id: uuid.UUID | None = None
+    verified_purchase: bool = True
+    created_at: datetime | None = None
+
+
+class ReviewOut(BaseModel):
+    """Returned to the review owner only (review-status, create, update endpoints)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    rating: int
+    review_text: str
     verified_purchase: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
