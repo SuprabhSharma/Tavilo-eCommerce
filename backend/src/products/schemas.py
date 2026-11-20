@@ -261,18 +261,23 @@ class ProductPublicOut(BaseModel):
 
 class ProductListOut(BaseModel):
     items: list[ProductPublicOut]
-    total: int
+    # Exact totals are opt-in because COUNT(*) becomes expensive at scale.
+    total: int | None = None
     page: int
     page_size: int
-    pages: int
+    pages: int | None = None
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class VendorProductListOut(BaseModel):
     items: list[ProductOut]
-    total: int
+    total: int | None = None
     page: int
     page_size: int
-    pages: int
+    pages: int | None = None
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class VendorProductSummaryOut(BaseModel):

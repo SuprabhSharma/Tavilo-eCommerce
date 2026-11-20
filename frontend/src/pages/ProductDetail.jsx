@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Heart, MapPin, MessageCircleHeart, Pencil, ShieldCheck, ShoppingBag, ShoppingCart, Star, Store, Trash2, X, Zap } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -29,6 +29,7 @@ import { productImage } from "../lib/formatters";
 import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 import { getErrorMessage } from "../lib/errors";
+import { subscribeToOrderUpdates } from "../lib/orderSync";
 
 function StarPicker({ value = 0, onChange, interactive = false, label = "Rating" }) {
   const [hovered, setHovered] = useState(0);
@@ -76,6 +77,7 @@ function StarPicker({ value = 0, onChange, interactive = false, label = "Rating"
 export default function ProductDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [cartError, setCartError] = useState("");
   const [cartMessage, setCartMessage] = useState("");
   const [wishlistMessage, setWishlistMessage] = useState("");
@@ -104,13 +106,30 @@ export default function ProductDetail() {
     queryKey: ["review-status", slug],
     queryFn: () => getReviewStatus(slug),
     enabled: Boolean(product) && isLoggedIn,
+    // Eligibility is server-owned. Cross-tab order updates and focus changes
+    // refresh it without polling on every open product page.
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
+  useEffect(() => {
+    if (!isLoggedIn || !slug) return undefined;
+    return subscribeToOrderUpdates(() => {
+      queryClient.invalidateQueries({ queryKey: ["review-status", slug] });
+    });
+  }, [isLoggedIn, queryClient, slug]);
+  const showFeedbackAction =
+    !isLoggedIn ||
+    reviewStatus.isLoading ||
+    reviewStatus.isError ||
+    editingReview ||
+    writingReview ||
+    Boolean(reviewStatus.data?.can_review) ||
+    Boolean(reviewStatus.data?.review);
   const related = useQuery({
     queryKey: ["products", { vendor: product?.vendor?.slug, page_size: 4 }],
     queryFn: () => listProducts({ vendor: product.vendor.slug, page_size: 4 }),
     enabled: Boolean(product?.vendor?.slug),
   });
-  const queryClient = useQueryClient();
 
   // ── Add to Cart mutation (accumulates qty, optimistic update) ──────────────
   const cart = useMutation({
@@ -436,7 +455,13 @@ export default function ProductDetail() {
         <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_55px_rgba(16,40,75,0.08)]">
           <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-brand-100/70 blur-3xl" aria-hidden="true" />
           <div className="absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-amber-100/60 blur-3xl" aria-hidden="true" />
-          <div className="relative grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div
+            className={`relative grid gap-8 p-6 sm:p-8 ${
+              showFeedbackAction
+                ? "lg:grid-cols-[1.1fr_0.9fr] lg:items-center"
+                : "max-w-2xl"
+            }`}
+          >
             <div>
               <span className="inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-brand-700">
                 <ShieldCheck size={15} />
@@ -458,54 +483,59 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            <div className="rounded-2xl bg-slate-950 p-5 text-white shadow-xl shadow-slate-900/15">
-              {!isLoggedIn ? (
-                <>
-                  <MessageCircleHeart size={25} className="text-brand-200" />
-                  <h3 className="mt-3 text-lg font-bold">Share feedback after delivery</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-300">Sign in to see whether this delivered purchase is ready for feedback.</p>
-                  <Button className="mt-5 bg-white text-ink hover:bg-brand-50" onClick={() => navigate("/account?next=" + encodeURIComponent("/p/" + slug))}>
-                    Sign in to continue
-                  </Button>
-                </>
-              ) : reviewStatus.isLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-5 w-36 bg-slate-700" />
-                  <Skeleton className="h-10 w-full bg-slate-800" />
-                </div>
-              ) : editingReview || writingReview ? (
-                <>
-                  <MessageCircleHeart size={25} className="text-brand-200" />
-                  <h3 className="mt-3 text-lg font-bold">Feedback in progress</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-300">Your rating and message are ready just below.</p>
-                  <button type="button" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-brand-200 transition hover:text-white" onClick={() => { setEditingReview(null); setWritingReview(false); }}>
-                    <X size={16} />
-                    Close feedback form
-                  </button>
-                </>
-              ) : reviewStatus.data?.can_review && !reviewStatus.data?.review ? (
-                <>
-                  <MessageCircleHeart size={25} className="text-brand-200" />
-                  <h3 className="mt-3 text-lg font-bold">How did it go?</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-300">Your delivery is verified. A quick rating helps the next customer.</p>
-                  <Button className="mt-5 bg-brand-400 text-slate-950 hover:bg-brand-300" onClick={openNewReview}>
-                    Give your feedback
-                  </Button>
-                </>
-              ) : reviewStatus.data?.review ? (
-                <>
-                  <Check size={25} className="text-emerald-300" />
-                  <h3 className="mt-3 text-lg font-bold">Feedback received</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-300">Thank you for helping other shoppers.</p>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={25} className="text-slate-300" />
-                  <h3 className="mt-3 text-lg font-bold">Feedback unlocks after delivery</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-300">Once this item is marked delivered, you will be able to give your feedback here.</p>
-                </>
-              )}
-            </div>
+            {showFeedbackAction && (
+              <div className="rounded-2xl bg-slate-950 p-5 text-white shadow-xl shadow-slate-900/15">
+                {!isLoggedIn ? (
+                  <>
+                    <MessageCircleHeart size={25} className="text-brand-200" />
+                    <h3 className="mt-3 text-lg font-bold">Share feedback after delivery</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">Sign in to see whether this delivered purchase is ready for feedback.</p>
+                    <Button className="mt-5 bg-white text-ink hover:bg-brand-50" onClick={() => navigate("/account?next=" + encodeURIComponent("/p/" + slug))}>
+                      Sign in to continue
+                    </Button>
+                  </>
+                ) : reviewStatus.isLoading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-5 w-36 bg-slate-700" />
+                    <Skeleton className="h-10 w-full bg-slate-800" />
+                  </div>
+                ) : reviewStatus.isError ? (
+                  <>
+                    <ShieldCheck size={25} className="text-slate-300" />
+                    <h3 className="mt-3 text-lg font-bold">Could not check feedback eligibility</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">Try again to check whether this delivered purchase is ready for feedback.</p>
+                    <button type="button" className="mt-4 text-sm font-bold text-brand-200 underline underline-offset-2" onClick={() => reviewStatus.refetch()}>
+                      Try again
+                    </button>
+                  </>
+                ) : editingReview || writingReview ? (
+                  <>
+                    <MessageCircleHeart size={25} className="text-brand-200" />
+                    <h3 className="mt-3 text-lg font-bold">Feedback in progress</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">Your rating and message are ready just below.</p>
+                    <button type="button" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-brand-200 transition hover:text-white" onClick={() => { setEditingReview(null); setWritingReview(false); }}>
+                      <X size={16} />
+                      Close feedback form
+                    </button>
+                  </>
+                ) : reviewStatus.data?.can_review && !reviewStatus.data?.review ? (
+                  <>
+                    <MessageCircleHeart size={25} className="text-brand-200" />
+                    <h3 className="mt-3 text-lg font-bold">How did it go?</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">Your delivery is verified. A quick rating helps the next customer.</p>
+                    <Button className="mt-5 bg-brand-400 text-slate-950 hover:bg-brand-300" onClick={openNewReview}>
+                      Give your feedback
+                    </Button>
+                  </>
+                ) : reviewStatus.data?.review ? (
+                  <>
+                    <Check size={25} className="text-emerald-300" />
+                    <h3 className="mt-3 text-lg font-bold">Feedback received</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">Thank you for helping other shoppers.</p>
+                  </>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 

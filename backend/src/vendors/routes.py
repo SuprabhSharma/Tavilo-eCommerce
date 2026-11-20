@@ -1,13 +1,13 @@
 import uuid
 
 from fastapi import APIRouter, Depends, status
-from src.audit import record_audit
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.audit import record_audit
 from src.auth.dependencies import RoleChecker, get_verified_user
 from src.db.main import get_session
 from src.db.models import User
-from src.errors import InsufficientPermission, VendorNotFound
+from src.errors import VendorNotFound
 
 from .schemas import VendorApply, VendorOut, VendorUpdate
 from .service import VendorService
@@ -20,13 +20,19 @@ admin_only = Depends(RoleChecker(["admin"]))
 
 # ── Authenticated: apply ──────────────────────────────────────────────────────
 
-@vendor_router.post("/apply", response_model=VendorOut, status_code=status.HTTP_201_CREATED)
+
+
+
+@vendor_router.post(
+    "/apply", response_model=VendorOut, status_code=status.HTTP_201_CREATED
+)
 async def apply_as_vendor(
     data: VendorApply,
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
     from src.errors import VendorAlreadyExists
+
     if current_user.role != "customer":
         raise VendorAlreadyExists()
     existing = await service.get_by_user_id(current_user.uid, session)
@@ -36,6 +42,7 @@ async def apply_as_vendor(
 
 
 # ── Vendor: own profile ───────────────────────────────────────────────────────
+
 
 @vendor_router.get("/me/profile", response_model=VendorOut)
 async def get_my_profile(
@@ -62,7 +69,10 @@ async def update_my_profile(
 
 # ── Admin: approvals ──────────────────────────────────────────────────────────
 
-@vendor_router.get("/admin/pending", response_model=list[VendorOut], dependencies=[admin_only])
+
+@vendor_router.get(
+    "/admin/pending", response_model=list[VendorOut], dependencies=[admin_only]
+)
 async def list_pending_vendors(session: AsyncSession = Depends(get_session)):
     return await service.get_all_pending(session)
 
@@ -77,7 +87,9 @@ async def approve_vendor(
     if not vendor:
         raise VendorNotFound()
     result = await service.set_status(vendor, "approved", session)
-    await record_audit(session, "admin.vendor_approved", current_user.uid, "vendor", str(uid))
+    await record_audit(
+        session, "admin.vendor_approved", current_user.uid, "vendor", str(uid)
+    )
     await session.commit()
     await session.refresh(result)
     return result
@@ -93,7 +105,9 @@ async def suspend_vendor(
     if not vendor:
         raise VendorNotFound()
     result = await service.set_status(vendor, "suspended", session)
-    await record_audit(session, "admin.vendor_suspended", current_user.uid, "vendor", str(uid))
+    await record_audit(
+        session, "admin.vendor_suspended", current_user.uid, "vendor", str(uid)
+    )
     await session.commit()
     await session.refresh(result)
     return result
@@ -101,10 +115,13 @@ async def suspend_vendor(
 
 # ── Public ────────────────────────────────────────────────────────────────────
 
+
 # Keep the parameterized storefront route after the fixed management routes.
 # Otherwise paths such as /apply and /me/profile can be consumed as slugs.
 @vendor_router.get("/{slug}", response_model=VendorOut)
-async def get_vendor_storefront(slug: str, session: AsyncSession = Depends(get_session)):
+async def get_vendor_storefront(
+    slug: str, session: AsyncSession = Depends(get_session)
+):
     vendor = await service.get_by_slug(slug, session)
     if not vendor:
         raise VendorNotFound()

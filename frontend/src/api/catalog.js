@@ -1,6 +1,10 @@
 import { api } from "../lib/apiClient";
-export const listProducts = (params) =>
-  api.get("/products", { params }).then((r) => r.data);
+export const listProducts = (params = {}) =>
+  api.get("/products", {
+    // Catalog views do not need an exact total to render a page.
+    // Opting out avoids a COUNT(*) scan on every catalog request.
+    params: { ...params, include_total: params.include_total ?? false },
+  }).then((r) => r.data);
 export const listServices = (params) =>
   api.get("/services", { params }).then((r) => r.data);
 export const getProduct = (slug) =>

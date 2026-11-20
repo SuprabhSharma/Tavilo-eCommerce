@@ -1,12 +1,17 @@
+import base64
+import binascii
+import hashlib
+import json
 import math
 import uuid
 from copy import copy
+from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,6 +37,83 @@ from .schemas import (
 
 
 class ProductService:
+    """Product queries with keyset pagination as the scalable default."""
+
+    _CURSOR_VERSION = 1
+
+    @staticmethod
+    def _escape_like(value: str) -> str:
+        """Treat user search text literally; % and _ must not widen a query."""
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+    @staticmethod
+    def _cursor_fingerprint(**filters: object) -> str:
+        canonical = json.dumps(filters, sort_keys=True, default=str, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+    @classmethod
+    def _encode_cursor(cls, *, sort: str, fingerprint: str, product: Product) -> str:
+        if sort == "newest":
+            position = [product.created_at.isoformat(), str(product.uid)]
+        elif sort in {"price_asc", "price_desc"}:
+            position = [str(product.price), str(product.uid)]
+        else:
+            position = [str(product.rating_avg), product.created_at.isoformat(), str(product.uid)]
+        payload = {"v": cls._CURSOR_VERSION, "s": sort, "f": fingerprint, "p": position}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        return encoded.decode("ascii").rstrip("=")
+
+    @classmethod
+    def _decode_cursor(cls, cursor: str, *, sort: str, fingerprint: str) -> list[object]:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+            if (payload.get("v") != cls._CURSOR_VERSION or payload.get("s") != sort
+                    or payload.get("f") != fingerprint or not isinstance(payload.get("p"), list)):
+                raise ValueError
+            position = payload["p"]
+            if sort == "newest" and len(position) == 2:
+                return [datetime.fromisoformat(position[0]), uuid.UUID(position[1])]
+            if sort in {"price_asc", "price_desc"} and len(position) == 2:
+                return [Decimal(position[0]), uuid.UUID(position[1])]
+            if sort == "rating" and len(position) == 3:
+                return [Decimal(position[0]), datetime.fromisoformat(position[1]), uuid.UUID(position[2])]
+        except (AttributeError, TypeError, ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        raise HTTPException(status_code=400, detail="Invalid or expired pagination cursor.")
+
+    @staticmethod
+    def _sort_statement(stmt, sort: str):
+        if sort == "price_asc":
+            return stmt.order_by(Product.price.asc(), Product.uid.asc())
+        if sort == "price_desc":
+            return stmt.order_by(Product.price.desc(), Product.uid.desc())
+        if sort == "rating":
+            return stmt.order_by(Product.rating_avg.desc(), Product.created_at.desc(), Product.uid.desc())
+        return stmt.order_by(Product.created_at.desc(), Product.uid.desc())
+
+    @staticmethod
+    def _after_cursor(sort: str, position: list[object]):
+        """Rows strictly after a keyset cursor in the active order."""
+        if sort == "newest":
+            created_at, uid = position
+            return or_(Product.created_at < created_at, and_(Product.created_at == created_at, Product.uid < uid))
+        if sort == "price_asc":
+            price, uid = position
+            return or_(Product.price > price, and_(Product.price == price, Product.uid > uid))
+        if sort == "price_desc":
+            price, uid = position
+            return or_(Product.price < price, and_(Product.price == price, Product.uid < uid))
+        rating, created_at, uid = position
+        return or_(
+            Product.rating_avg < rating,
+            and_(Product.rating_avg == rating, Product.created_at < created_at),
+            and_(Product.rating_avg == rating, Product.created_at == created_at, Product.uid < uid),
+        )
+
+    @staticmethod
+    def _page_metadata(total: int | None, page_size: int) -> tuple[int | None, int | None]:
+        return total, math.ceil(total / page_size) if total else (0 if total == 0 else None)
     @staticmethod
     def _with_available_images(product: Product) -> Product:
         """Hide stale local-media references without deleting recoverable records."""
@@ -124,37 +206,40 @@ class ProductService:
         max_price: Optional[Decimal] = None,
         in_stock: Optional[bool] = None,
         sort: str = "newest",
+        cursor: Optional[str] = None,
+        include_total: Optional[bool] = None,
     ) -> ProductListOut:
-        stmt = select(Product).join(Vendor, Product.vendor_id == Vendor.uid).where(Product.status == "active", Vendor.status == "approved")
-
+        stmt = select(Product).join(Vendor, Product.vendor_id == Vendor.uid).where(
+            Product.status == "active", Vendor.status == "approved"
+        )
         if ids:
             parsed_ids = []
-            for raw_id in ids.split(','):
+            for raw_id in ids.split(","):
                 try:
                     parsed_ids.append(uuid.UUID(raw_id.strip()))
                 except (ValueError, AttributeError):
                     continue
             if parsed_ids:
                 stmt = stmt.where(Product.uid.in_(parsed_ids))
-
         if category_slug:
             cat_q = await session.exec(select(Category).where(Category.slug == category_slug))
             cat = cat_q.first()
             if cat:
                 stmt = stmt.where(Product.category_id == cat.uid)
-
         if vendor_slug:
             v_q = await session.exec(select(Vendor).where(Vendor.slug == vendor_slug, Vendor.status == "approved"))
             vendor = v_q.first()
             if vendor:
                 stmt = stmt.where(Product.vendor_id == vendor.uid)
             else:
-                # Specified vendor doesn't exist or is not approved; return empty list
-                return ProductListOut(items=[], total=0, page=page, page_size=page_size, pages=0)
-
-        if query:
-            stmt = stmt.where(Product.title.ilike(f"%{query.strip()}%"))
-
+                return ProductListOut(
+                    items=[], total=0 if include_total is not False else None,
+                    page=page, page_size=page_size,
+                    pages=0 if include_total is not False else None,
+                )
+        clean_query = query.strip() if query else None
+        if clean_query:
+            stmt = stmt.where(Product.title.ilike(f"%{self._escape_like(clean_query)}%", escape="!"))
         if min_price is not None:
             stmt = stmt.where(Product.price >= min_price)
         if max_price is not None:
@@ -162,34 +247,35 @@ class ProductService:
         if in_stock is True:
             stmt = stmt.where(Product.stock > 0)
 
-        # sorting
-        if sort == "price_asc":
-            stmt = stmt.order_by(Product.price.asc())
-        elif sort == "price_desc":
-            stmt = stmt.order_by(Product.price.desc())
-        elif sort == "rating":
-            stmt = stmt.order_by(Product.rating_avg.desc())
-        else:  # newest
-            stmt = stmt.order_by(Product.created_at.desc())
-
-        # Sorting is only needed for the page query. Removing it from the
-        # count subquery prevents PostgreSQL from sorting the entire catalog
-        # before counting rows.
-        total_result = await session.exec(
-            select(func.count()).select_from(stmt.order_by(None).subquery())
+        # New clients explicitly set include_total=false. We fetch one extra
+        # row to determine whether there is another page, avoiding COUNT and
+        # OFFSET entirely. Omitting it preserves the legacy numbered API.
+        cursor_mode = cursor is not None or include_total is False
+        fingerprint = self._cursor_fingerprint(
+            category=category_slug, vendor=vendor_slug, query=clean_query,
+            ids=ids, min_price=min_price, max_price=max_price,
+            in_stock=in_stock, sort=sort,
         )
-        total = total_result.one()
+        if cursor:
+            position = self._decode_cursor(cursor, sort=sort, fingerprint=fingerprint)
+            stmt = stmt.where(self._after_cursor(sort, position))
+        stmt = self._sort_statement(stmt, sort)
 
-        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-        result = await session.exec(stmt)
-        items = [self._with_available_images(product) for product in result.all()]
-
+        total: int | None = None
+        if cursor_mode:
+            stmt = stmt.limit(page_size + 1)
+        else:
+            total = (await session.exec(select(func.count()).select_from(stmt.order_by(None).subquery()))).one()
+            stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        rows = (await session.exec(stmt)).all()
+        has_more = cursor_mode and len(rows) > page_size
+        rows = rows[:page_size]
+        total, pages = self._page_metadata(total, page_size)
         return ProductListOut(
-            items=items,
-            total=total,
-            page=page,
-            page_size=page_size,
-            pages=math.ceil(total / page_size) if total else 0,
+            items=[self._with_available_images(product) for product in rows],
+            total=total, page=page, page_size=page_size, pages=pages,
+            has_more=has_more,
+            next_cursor=(self._encode_cursor(sort=sort, fingerprint=fingerprint, product=rows[-1]) if has_more else None),
         )
 
     async def get_by_slug(self, slug: str, session: AsyncSession) -> Optional[Product]:
@@ -212,28 +298,41 @@ class ProductService:
         page: int = 1,
         page_size: int = 20,
         query: Optional[str] = None,
+        cursor: Optional[str] = None,
+        include_total: Optional[bool] = None,
     ) -> VendorProductListOut:
         stmt = select(Product).where(Product.vendor_id == vendor_id)
-        if query:
-            clean_q = f"%{query.strip()}%".lower()
+        clean_query = query.strip() if query else None
+        if clean_query:
+            pattern = f"%{self._escape_like(clean_query)}%"
+            # ILIKE matches the pg_trgm indexes directly. The old lower(...)
+            # expressions could not use the regular trigram operator class.
             stmt = stmt.where(
-                (func.lower(Product.title).like(clean_q)) |
-                (func.lower(Product.slug).like(clean_q)) |
-                (func.lower(func.coalesce(Product.sku, "")).like(clean_q))
+                Product.title.ilike(pattern, escape="!")
+                | Product.slug.ilike(pattern, escape="!")
+                | Product.sku.ilike(pattern, escape="!")
             )
-        stmt = stmt.order_by(Product.created_at.desc())
-        total_result = await session.exec(
-            select(func.count()).select_from(stmt.order_by(None).subquery())
-        )
-        total = total_result.one()
-        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-        result = await session.exec(stmt)
+        cursor_mode = cursor is not None or include_total is False
+        fingerprint = self._cursor_fingerprint(vendor_id=vendor_id, query=clean_query, sort="newest")
+        if cursor:
+            position = self._decode_cursor(cursor, sort="newest", fingerprint=fingerprint)
+            stmt = stmt.where(self._after_cursor("newest", position))
+        stmt = self._sort_statement(stmt, "newest")
+        total: int | None = None
+        if cursor_mode:
+            stmt = stmt.limit(page_size + 1)
+        else:
+            total = (await session.exec(select(func.count()).select_from(stmt.order_by(None).subquery()))).one()
+            stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        rows = (await session.exec(stmt)).all()
+        has_more = cursor_mode and len(rows) > page_size
+        rows = rows[:page_size]
+        total, pages = self._page_metadata(total, page_size)
         return VendorProductListOut(
-            items=[self._with_available_images(product) for product in result.all()],
-            total=total,
-            page=page,
-            page_size=page_size,
-            pages=math.ceil(total / page_size) if total else 0,
+            items=[self._with_available_images(product) for product in rows],
+            total=total, page=page, page_size=page_size, pages=pages,
+            has_more=has_more,
+            next_cursor=(self._encode_cursor(sort="newest", fingerprint=fingerprint, product=rows[-1]) if has_more else None),
         )
 
     async def get_vendor_summary(

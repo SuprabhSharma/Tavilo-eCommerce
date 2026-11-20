@@ -57,7 +57,10 @@ import {
 import { BackLink, PageHeader } from "../components/Page";
 import ProductPrice from "../components/ProductPrice";
 import ProductGallery from "../components/ProductGallery";
-import { broadcastOrderUpdate } from "../lib/orderSync";
+import {
+  broadcastOrderUpdate,
+  subscribeToOrderUpdates,
+} from "../lib/orderSync";
 import {
   Badge,
   Button,
@@ -72,6 +75,8 @@ import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
 import ProductImage from "../components/ProductImage";
 
 const LOW_STOCK_THRESHOLD = 5;
+const getVendorOrderStatus = (order) =>
+  String(order?.status || "").trim().toLowerCase();
 
 const navItems = [
   { to: "/vendor", label: "Overview", icon: LayoutDashboard },
@@ -448,7 +453,7 @@ function ApprovedOverview({ vendor }) {
         <ErrorState onRetry={products.refetch} />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
               icon={ShoppingBag}
               label="Total orders"
@@ -461,11 +466,6 @@ function ApprovedOverview({ vendor }) {
               tone={pendingOrders.length ? "warning" : "default"}
               to="/vendor/orders?status=action_required"
               actionLabel="Manage orders"
-            />
-            <Metric
-              icon={Package}
-              label="Total products"
-              value={items.length}
             />
             <Metric
               icon={BarChart3}
@@ -578,8 +578,7 @@ function ApprovedOverview({ vendor }) {
                         <p className="truncate text-sm font-semibold">
                           {product.title}
                         </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted">
-                          {product.stock} units Â·{" "}
+                        <div className="mt-1 text-xs text-muted">
                           <ProductPrice
                             price={product.price}
                             mrp={product.mrp}
@@ -777,11 +776,6 @@ function VendorProducts({ profile }) {
               <Plus size={17} /> Add product
             </Button>
           </div>
-          <p className="min-h-4 px-1 text-xs text-muted" aria-live="polite">
-            {deferredSearch
-              ? `${filteredItems.length} of ${items.length} products`
-              : `${items.length} products`}
-          </p>
           <div className="overflow-hidden rounded-card border border-line bg-white">
             {filteredItems.length === 0 ? (
               <div className="px-5 py-10 text-center">
@@ -800,7 +794,7 @@ function VendorProducts({ profile }) {
               </div>
             ) : (
               <>
-                <div className="hidden grid-cols-[1fr_110px_100px_120px_100px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
+                <div className="hidden grid-cols-[1fr_110px_120px_100px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
                   <span>Product</span>
                   <span>Price</span>
                   <span>Stock</span>
@@ -810,7 +804,7 @@ function VendorProducts({ profile }) {
                 {filteredItems.map((product) => (
                 <div
                   key={product.uid}
-                  className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_100px_120px_100px] sm:items-center sm:gap-4"
+                  className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_120px_100px] sm:items-center sm:gap-4"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
@@ -825,11 +819,7 @@ function VendorProducts({ profile }) {
                     mrp={product.mrp}
                     className="text-sm"
                   />
-                  <p
-                    className={`text-sm ${product.stock <= LOW_STOCK_THRESHOLD ? "font-semibold text-amber-700" : ""}`}
-                  >
-                    {product.stock}
-                  </p>
+
                   <Badge
                     tone={
                       product.status === "active"
@@ -1817,24 +1807,77 @@ function toForm(product) {
 
 function VendorOrders({ profile }) {
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const [statusFilter, setStatusFilter] = useState(
-    () => searchParams.get("status") || "all",
-  );
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedStatus = searchParams.get("status");
+  const validStatuses = [
+    "all",
+    "action_required",
+    "confirmed",
+    "shipped",
+    "delivered",
+    "cancelled",
+  ];
+  const statusFilter = validStatuses.includes(requestedStatus)
+    ? requestedStatus
+    : "all";
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedId, setCopiedId] = useState(null);
   const [cancelModalSubUid, setCancelModalSubUid] = useState(null);
+  const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+
+  const changeStatusFilter = (nextStatus) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextStatus === "all") nextParams.delete("status");
+    else nextParams.set("status", nextStatus);
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const ordersQuery = useQuery({
     queryKey: ["vendor-orders"],
     queryFn: getVendorOrders,
+    // Keep counts and order rows in sync with changes made elsewhere.
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
+
+  useEffect(
+    () =>
+      subscribeToOrderUpdates(() => {
+        queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
+      }),
+    [queryClient],
+  );
 
   const updateStatusMutation = useMutation({
     mutationFn: ({ subUid, status }) =>
       updateVendorSubOrderStatus(subUid, status),
     onSuccess: (data, variables) => {
       setCancelModalSubUid(null);
+      setActionError("");
+      const actionLabels = {
+        confirmed: "Order confirmed.",
+        shipped: "Order marked as shipped.",
+        delivered: "Order marked as delivered.",
+        cancelled: "Order cancelled and reserved stock restored.",
+      };
+      setActionMessage(actionLabels[variables.status] || "Order updated.");
+      queryClient.setQueryData(["vendor-orders"], (current) =>
+        Array.isArray(current)
+          ? current.map((order) =>
+              order.uid === data.uid
+                ? {
+                    ...order,
+                    status: data.status,
+                    parent_order_status: data.parent_order_status,
+                    updated_at: data.updated_at,
+                  }
+                : order,
+            )
+          : current,
+      );
       queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["order"] });
@@ -1846,6 +1889,13 @@ function VendorOrders({ profile }) {
         orderId: data?.order_id,
         status: variables.status,
       });
+    },
+    onMutate: () => {
+      setActionError("");
+      setActionMessage("");
+    },
+    onError: (error) => {
+      setActionError(getErrorMessage(error));
     },
   });
 
@@ -1868,19 +1918,30 @@ function VendorOrders({ profile }) {
     );
   }
 
-  if (ordersQuery.isError) {
+  if (ordersQuery.isError && !ordersQuery.data) {
     return <ErrorState onRetry={ordersQuery.refetch} />;
   }
 
   const rawOrders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
+  const statusCounts = rawOrders.reduce(
+    (counts, order) => {
+      const status = getVendorOrderStatus(order);
+      if (Object.prototype.hasOwnProperty.call(counts, status)) {
+        counts[status] += 1;
+      }
+      return counts;
+    },
+    { placed: 0, confirmed: 0, shipped: 0, delivered: 0, cancelled: 0 },
+  );
 
   const filteredOrders = rawOrders.filter((order) => {
+    const orderStatus = getVendorOrderStatus(order);
     const matchesStatus =
       statusFilter === "all"
         ? true
         : statusFilter === "action_required"
-          ? order.status === "placed"
-          : order.status === statusFilter;
+          ? orderStatus === "placed"
+          : orderStatus === statusFilter;
 
     if (!matchesStatus) return false;
 
@@ -1901,10 +1962,6 @@ function VendorOrders({ profile }) {
     return idMatch || customerMatch || itemMatch;
   });
 
-  const actionRequiredCount = rawOrders.filter(
-    (o) => o.status === "placed"
-  ).length;
-
   return (
     <div>
       <PageHeader
@@ -1913,6 +1970,18 @@ function VendorOrders({ profile }) {
         description="Process store orders, manage fulfillment steps, and keep customer deliveries on track."
         action={
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="px-3"
+              loading={ordersQuery.isFetching}
+              disabled={ordersQuery.isFetching}
+              onClick={() => ordersQuery.refetch()}
+              aria-label="Refresh vendor orders"
+            >
+              {!ordersQuery.isFetching && <RotateCcw size={15} />}
+              Refresh
+            </Button>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
               <span className="h-2 w-2 rounded-full bg-brand-600 animate-pulse" />
               {rawOrders.length} Total Orders
@@ -1921,38 +1990,110 @@ function VendorOrders({ profile }) {
         }
       />
 
-      {/* Quick Status Highlights */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-card border border-line bg-white p-4">
-          <p className="text-xs font-semibold uppercase text-muted">New Orders</p>
-          <div className="mt-1 flex items-baseline justify-between">
-            <span className="text-2xl font-bold text-ink">
-              {rawOrders.filter((o) => o.status === "placed").length}
-            </span>
-            {actionRequiredCount > 0 && (
-              <Badge tone="warning">Action Needed</Badge>
-            )}
-          </div>
+      {actionError && (
+        <div
+          role="alert"
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError("")}
+            className="font-semibold text-red-700 underline underline-offset-2"
+          >
+            Dismiss
+          </button>
         </div>
-        <div className="rounded-card border border-line bg-white p-4">
-          <p className="text-xs font-semibold uppercase text-muted">Confirmed (Packing)</p>
-          <p className="mt-1 text-2xl font-bold text-ink">
-            {rawOrders.filter((o) => o.status === "confirmed").length}
+      )}
+      {actionMessage && !actionError && (
+        <p role="status" aria-live="polite" className="mt-3 text-sm font-medium text-emerald-700">
+          {actionMessage}
+        </p>
+      )}
+      {ordersQuery.isError && ordersQuery.data && (
+        <div
+          role="status"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span>Could not refresh orders. Showing the latest successfully loaded statuses.</span>
+          <button
+            type="button"
+            onClick={() => ordersQuery.refetch()}
+            className="font-semibold underline underline-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Status totals and filters share the same vendor shipment data. */}
+      <section className="mt-4" aria-label="Vendor order status summary">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">Order status</h2>
+          <p className="text-xs text-muted" role="status" aria-live="polite">
+            Auto-syncs every 15 seconds while this page is open.
           </p>
         </div>
-        <div className="rounded-card border border-line bg-white p-4">
-          <p className="text-xs font-semibold uppercase text-muted">In Transit (Shipped)</p>
-          <p className="mt-1 text-2xl font-bold text-ink">
-            {rawOrders.filter((o) => o.status === "shipped").length}
-          </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            {
+              id: "action_required",
+              label: "New orders",
+              count: statusCounts.placed,
+              tone: "text-ink",
+              attention: true,
+            },
+            {
+              id: "confirmed",
+              label: "Confirmed · packing",
+              count: statusCounts.confirmed,
+              tone: "text-ink",
+            },
+            {
+              id: "shipped",
+              label: "Shipped · in transit",
+              count: statusCounts.shipped,
+              tone: "text-ink",
+            },
+            {
+              id: "delivered",
+              label: "Delivered",
+              count: statusCounts.delivered,
+              tone: "text-emerald-700",
+            },
+            {
+              id: "cancelled",
+              label: "Cancelled",
+              count: statusCounts.cancelled,
+              tone: "text-red-700",
+            },
+          ].map((status) => (
+            <button
+              type="button"
+              key={status.id}
+              onClick={() => changeStatusFilter(status.id)}
+              aria-pressed={statusFilter === status.id}
+              className={`rounded-card border bg-white p-4 text-left transition hover:border-brand-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
+                statusFilter === status.id
+                  ? "border-brand-400 ring-1 ring-brand-200"
+                  : "border-line"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase text-muted">
+                  {status.label}
+                </p>
+                {status.attention && status.count > 0 && (
+                  <Badge tone="warning">Action needed</Badge>
+                )}
+              </div>
+              <p className={`mt-1 text-2xl font-bold tabular-nums ${status.tone}`}>
+                {status.count}
+              </p>
+            </button>
+          ))}
         </div>
-        <div className="rounded-card border border-line bg-white p-4">
-          <p className="text-xs font-semibold uppercase text-muted">Completed (Delivered)</p>
-          <p className="mt-1 text-2xl font-bold text-emerald-600">
-            {rawOrders.filter((o) => o.status === "delivered").length}
-          </p>
-        </div>
-      </div>
+      </section>
 
       {/* Filter Tabs & Search */}
       <div className="mt-6 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1970,21 +2111,27 @@ function VendorOrders({ profile }) {
           />
         </div>
 
-        <div className="flex max-w-full flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm">
+        <div
+          role="group"
+          aria-label="Filter orders by status"
+          className="flex max-w-full flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm"
+        >
           {[
             { id: "all", label: `All (${rawOrders.length})` },
             {
               id: "action_required",
-              label: `New Orders (${actionRequiredCount})`,
+              label: `New Orders (${statusCounts.placed})`,
             },
-            { id: "confirmed", label: "Confirmed" },
-            { id: "shipped", label: "Shipped" },
-            { id: "delivered", label: "Delivered" },
-            { id: "cancelled", label: "Cancelled" },
+            { id: "confirmed", label: `Confirmed (${statusCounts.confirmed})` },
+            { id: "shipped", label: `Shipped (${statusCounts.shipped})` },
+            { id: "delivered", label: `Delivered (${statusCounts.delivered})` },
+            { id: "cancelled", label: `Cancelled (${statusCounts.cancelled})` },
           ].map((tab) => (
             <button
+              type="button"
               key={tab.id}
-              onClick={() => setStatusFilter(tab.id)}
+              onClick={() => changeStatusFilter(tab.id)}
+              aria-pressed={statusFilter === tab.id}
               className={`rounded-lg px-3 py-1.5 font-medium transition ${
                 statusFilter === tab.id
                   ? "bg-brand-600 text-white shadow-sm"
@@ -2013,7 +2160,7 @@ function VendorOrders({ profile }) {
               className="mt-4"
               onClick={() => {
                 setSearchQuery("");
-                setStatusFilter("all");
+                changeStatusFilter("all");
               }}
             >
               Reset Filters
@@ -2023,11 +2170,12 @@ function VendorOrders({ profile }) {
       ) : (
         <div className="mt-6 space-y-5">
           {filteredOrders.map((subOrder) => {
-            const isPlaced = subOrder.status === "placed";
-            const isConfirmed = subOrder.status === "confirmed";
-            const isShipped = subOrder.status === "shipped";
-            const isDelivered = subOrder.status === "delivered";
-            const isCancelled = subOrder.status === "cancelled";
+            const orderStatus = getVendorOrderStatus(subOrder);
+            const isPlaced = orderStatus === "placed";
+            const isConfirmed = orderStatus === "confirmed";
+            const isShipped = orderStatus === "shipped";
+            const isDelivered = orderStatus === "delivered";
+            const isCancelled = orderStatus === "cancelled";
 
             const isPendingThis =
               updateStatusMutation.isPending &&
@@ -2045,13 +2193,19 @@ function VendorOrders({ profile }) {
                   <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
                     <div>
                       <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        SubOrder ID
+                        Store Shipment ID
                       </span>
                       <div className="flex items-center gap-1 font-mono font-medium text-ink">
                         <span>#{subOrder.uid.slice(0, 8).toUpperCase()}</span>
                         <button
+                          type="button"
                           onClick={(e) => copyToClipboard(subOrder.uid, e)}
                           title="Copy SubOrder UID"
+                          aria-label={
+                            copiedId === subOrder.uid
+                              ? "Shipment ID copied"
+                              : "Copy shipment ID"
+                          }
                           className="text-slate-400 hover:text-brand-600"
                         >
                           {copiedId === subOrder.uid ? (
@@ -2067,13 +2221,19 @@ function VendorOrders({ profile }) {
 
                     <div>
                       <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-                        Parent Order
+                        Customer Order
                       </span>
                       <div className="flex items-center gap-1 font-mono text-xs text-muted">
                         <span>#{subOrder.order_id?.slice(0, 8).toUpperCase()}</span>
                         <button
+                          type="button"
                           onClick={(e) => copyToClipboard(subOrder.order_id, e)}
                           title="Copy Parent Order UID"
+                          aria-label={
+                            copiedId === subOrder.order_id
+                              ? "Customer order ID copied"
+                              : "Copy customer order ID"
+                          }
                           className="hover:text-brand-600"
                         >
                           {copiedId === subOrder.order_id ? (
@@ -2123,7 +2283,7 @@ function VendorOrders({ profile }) {
                               : "neutral"
                       }
                     >
-                      {subOrder.status.toUpperCase()}
+                      {orderStatus.toUpperCase() || "UNKNOWN"}
                     </Badge>
                   </div>
                 </div>

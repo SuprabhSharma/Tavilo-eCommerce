@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import String, cast, func, or_
 from sqlmodel import select, text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,6 +17,7 @@ from .schemas import (
     OrderOut,
     SubOrderOut,
     VendorOrderItemOut,
+    VendorOrderPageOut,
     VendorSubOrderOut,
 )
 
@@ -419,24 +421,13 @@ class OrderService:
         # Always return the typed schema — never the raw ORM object
         return self._build_order_out(order)
 
-    async def get_vendor_orders(self, vendor_id: uuid.UUID, session: AsyncSession) -> List[VendorSubOrderOut]:
-        result = await session.exec(
-            select(SubOrder)
-            .where(SubOrder.vendor_id == vendor_id)
-            .order_by(SubOrder.created_at.desc())
-        )
-        sub_orders = result.all()
-        # Batch-load parent orders to avoid N+1
-        order_ids = {sub.order_id for sub in sub_orders}
-        if order_ids:
-            orders_res = await session.exec(select(Order).where(Order.uid.in_(order_ids)))
-            orders_map: Dict[uuid.UUID, Order] = {o.uid: o for o in orders_res.all()}
-        else:
-            orders_map = {}
+    @staticmethod
+    def _format_vendor_orders(
+        sub_orders: List[SubOrder], orders_map: Dict[uuid.UUID, Order]
+    ) -> List[VendorSubOrderOut]:
         out: List[VendorSubOrderOut] = []
         for sub in sub_orders:
             order = orders_map.get(sub.order_id)
-
             items_out = [
                 VendorOrderItemOut(
                     uid=item.uid,
@@ -450,7 +441,6 @@ class OrderService:
                 )
                 for item in sub.items
             ]
-
             out.append(
                 VendorSubOrderOut(
                     uid=sub.uid,
@@ -468,6 +458,121 @@ class OrderService:
                 )
             )
         return out
+
+    async def get_vendor_orders(
+        self, vendor_id: uuid.UUID, session: AsyncSession
+    ) -> List[VendorSubOrderOut]:
+        result = await session.exec(
+            select(SubOrder)
+            .where(SubOrder.vendor_id == vendor_id)
+            .order_by(SubOrder.created_at.desc(), SubOrder.uid.desc())
+        )
+        sub_orders = result.all()
+        order_ids = {sub.order_id for sub in sub_orders}
+        if order_ids:
+            orders_res = await session.exec(
+                select(Order).where(Order.uid.in_(order_ids))
+            )
+            orders_map: Dict[uuid.UUID, Order] = {
+                order.uid: order for order in orders_res.all()
+            }
+        else:
+            orders_map = {}
+        return self._format_vendor_orders(sub_orders, orders_map)
+
+    async def get_vendor_orders_page(
+        self,
+        vendor_id: uuid.UUID,
+        session: AsyncSession,
+        *,
+        page: int = 1,
+        page_size: int = 25,
+        status_filter: str | None = None,
+        search: str | None = None,
+    ) -> VendorOrderPageOut:
+        conditions = [SubOrder.vendor_id == vendor_id]
+        if status_filter == "action_required":
+            status_filter = "placed"
+        if status_filter in {
+            "placed", "confirmed", "shipped", "delivered", "cancelled"
+        }:
+            conditions.append(SubOrder.status == status_filter)
+
+        term = (search or "").strip()
+        if term:
+            escaped_term = (
+                term.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            )
+            pattern = f"%{escaped_term}%"
+            matching_item = (
+                select(OrderItem.uid)
+                .where(
+                    OrderItem.sub_order_id == SubOrder.uid,
+                    OrderItem.title_snapshot.ilike(pattern, escape="!"),
+                )
+                .exists()
+            )
+            matching_customer = (
+                select(Order.uid)
+                .where(
+                    Order.uid == SubOrder.order_id,
+                    or_(
+                        Order.address_snapshot["name"].as_string().ilike(pattern, escape="!"),
+                        Order.address_snapshot["phone"].as_string().ilike(pattern, escape="!"),
+                        Order.address_snapshot["city"].as_string().ilike(pattern, escape="!"),
+                    ),
+                )
+                .exists()
+            )
+            conditions.append(
+                or_(
+                    cast(SubOrder.uid, String).ilike(pattern, escape="!"),
+                    cast(SubOrder.order_id, String).ilike(pattern, escape="!"),
+                    matching_customer,
+                    matching_item,
+                )
+            )
+
+        total_result = await session.exec(
+            select(func.count(SubOrder.uid)).where(*conditions)
+        )
+        total = int(total_result.one() or 0)
+        status_result = await session.exec(
+            select(SubOrder.status, func.count(SubOrder.uid))
+            .where(SubOrder.vendor_id == vendor_id)
+            .group_by(SubOrder.status)
+        )
+        status_counts = {
+            str(order_status): int(count) for order_status, count in status_result.all()
+        }
+
+        rows_result = await session.exec(
+            select(SubOrder)
+            .where(*conditions)
+            .order_by(SubOrder.created_at.desc(), SubOrder.uid.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        sub_orders = rows_result.all()
+        order_ids = {sub.order_id for sub in sub_orders}
+        if order_ids:
+            orders_result = await session.exec(
+                select(Order).where(Order.uid.in_(order_ids))
+            )
+            orders_map: Dict[uuid.UUID, Order] = {
+                order.uid: order for order in orders_result.all()
+            }
+        else:
+            orders_map = {}
+
+        return VendorOrderPageOut(
+            items=self._format_vendor_orders(sub_orders, orders_map),
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=(total + page_size - 1) // page_size,
+            status_counts=status_counts,
+        )
 
     async def update_suborder_status(
         self, sub_uid: uuid.UUID, vendor_id: uuid.UUID, new_status: str, session: AsyncSession

@@ -705,6 +705,16 @@ class SubOrder(SQLModel, table=True):
     """One sub-order per vendor per order — this is the multi-vendor core."""
 
     __tablename__ = "sub_orders"
+    __table_args__ = (
+        Index("ix_sub_orders_vendor_created_uid", "vendor_id", "created_at", "uid"),
+        Index(
+            "ix_sub_orders_vendor_status_created_uid",
+            "vendor_id",
+            "status",
+            "created_at",
+            "uid",
+        ),
+    )
 
     uid: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -758,7 +768,7 @@ class OrderItem(SQLModel, table=True):
         default_factory=uuid.uuid4,
         sa_column=Column(pg.UUID, nullable=False, primary_key=True, default=uuid.uuid4)
     )
-    sub_order_id: uuid.UUID = Field(foreign_key="sub_orders.uid", nullable=False)
+    sub_order_id: uuid.UUID = Field(foreign_key="sub_orders.uid", nullable=False, index=True)
     product_id: uuid.UUID = Field(foreign_key="products.uid", nullable=False)
     # Snapshots — past orders never change when product data changes
     title_snapshot: str = Field(sa_column=Column(pg.VARCHAR(255), nullable=False))

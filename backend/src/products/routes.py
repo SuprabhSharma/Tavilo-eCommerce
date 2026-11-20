@@ -74,6 +74,8 @@ async def list_products(
     max_price: Decimal | None = Query(None),
     in_stock: bool | None = Query(None),
     sort: str = Query("newest", pattern="^(newest|price_asc|price_desc|rating)$"),
+    cursor: str | None = Query(None, min_length=8, max_length=512, description="Opaque cursor from next_cursor"),
+    include_total: bool | None = Query(None, description="Set false for scalable cursor pagination"),
     response: Response = None,
     session: AsyncSession = Depends(get_session),
     _rate: None = Depends(_catalog_rate_check),
@@ -90,6 +92,8 @@ async def list_products(
         max_price=max_price,
         in_stock=in_stock,
         sort=sort,
+        cursor=cursor,
+        include_total=include_total,
     )
     if response is not None:
         response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
@@ -140,10 +144,15 @@ async def vendor_list_products(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     q: str | None = Query(None),
+    cursor: str | None = Query(None, min_length=8, max_length=512),
+    include_total: bool | None = Query(None, description="Set false for scalable cursor pagination"),
     vendor: Vendor = Depends(get_approved_vendor),
     session: AsyncSession = Depends(get_session),
 ):
-    payload = await service.get_vendor_products(vendor.uid, session, page=page, page_size=page_size, query=q)
+    payload = await service.get_vendor_products(
+        vendor.uid, session, page=page, page_size=page_size, query=q,
+        cursor=cursor, include_total=include_total,
+    )
     for product in payload.items:
         for image in product.images:
             filename = get_image_filename(image.url)

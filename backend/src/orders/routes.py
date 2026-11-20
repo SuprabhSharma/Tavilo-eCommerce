@@ -9,7 +9,14 @@ from src.db.main import get_session
 from src.db.models import User, Vendor
 from src.errors import InsufficientPermission, VendorNotFound
 
-from .schemas import CheckoutRequest, OrderOut, SubOrderOut, SubOrderStatusUpdate, VendorSubOrderOut
+from .schemas import (
+    CheckoutRequest,
+    OrderOut,
+    SubOrderOut,
+    SubOrderStatusUpdate,
+    VendorOrderPageOut,
+    VendorSubOrderOut,
+)
 from .service import OrderService
 
 order_router = APIRouter()
@@ -28,6 +35,28 @@ async def get_approved_vendor(current_user: User = Depends(get_verified_user), s
 
 
 # ── Vendor Management (Must precede /{uid} to prevent path conflict) ──────────
+
+@order_router.get("/vendor/page", response_model=VendorOrderPageOut)
+async def list_vendor_orders_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    status_filter: str | None = Query(
+        None,
+        alias="status",
+        pattern="^(action_required|placed|confirmed|shipped|delivered|cancelled)$",
+    ),
+    search: str | None = Query(None, max_length=100),
+    vendor: Vendor = Depends(get_approved_vendor),
+    session: AsyncSession = Depends(get_session),
+):
+    return await service.get_vendor_orders_page(
+        vendor.uid,
+        session,
+        page=page,
+        page_size=page_size,
+        status_filter=status_filter,
+        search=search,
+    )
 
 @order_router.get("/vendor", response_model=List[VendorSubOrderOut])
 async def list_vendor_orders(

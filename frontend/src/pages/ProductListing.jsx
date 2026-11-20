@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Filter, SlidersHorizontal } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -10,22 +10,29 @@ import { Button, ErrorState, Select } from "../components/ui";
 export default function ProductListing() {
   const { category: pathCategory } = useParams();
   const [params, setParams] = useSearchParams();
-  const page = Number(params.get("page") || 1);
   const category = params.get("category") || pathCategory || "";
   const q = params.get("q") || "";
   const sort = params.get("sort") || "newest";
   const inStock = params.get("in_stock") === "true";
+  const [cursor, setCursor] = useState(null);
+  const [cursorHistory, setCursorHistory] = useState([]);
   const queryParams = useMemo(
     () => ({
-      page,
       page_size: 20,
       category: category || undefined,
       q: q || undefined,
       sort,
       in_stock: inStock || undefined,
+      cursor: cursor || undefined,
+      // Cursor pages fetch one extra row instead of executing COUNT(*).
+      include_total: false,
     }),
-    [page, category, q, sort, inStock],
+    [cursor, category, q, sort, inStock],
   );
+  useEffect(() => {
+    setCursor(null);
+    setCursorHistory([]);
+  }, [category, q, sort, inStock]);
   const products = useQuery({
     queryKey: ["products", queryParams],
     queryFn: () => listProducts(queryParams),
@@ -41,9 +48,8 @@ export default function ProductListing() {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
-    // Filter changes should start at the first page, but pagination controls
-    // must preserve the page they are navigating to.
-    if (key !== "page") next.set("page", "1");
+    // Filter changes reset the local keyset cursor through the effect above.
+    next.delete("page");
     setParams(next);
   };
   return (
@@ -114,7 +120,7 @@ export default function ProductListing() {
       ) : (
         <>
           <div className="mb-4 text-sm text-muted">
-            {products.data.total} products
+            {products.data.total == null ? "Browse more products" : `${products.data.total} products`}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {products.data.items.map((product, idx) => (
@@ -128,18 +134,25 @@ export default function ProductListing() {
           <div className="mt-8 flex items-center justify-center gap-3">
             <Button
               variant="outline"
-              disabled={page <= 1}
-              onClick={() => update("page", String(page - 1))}
+              disabled={cursorHistory.length === 0}
+              onClick={() => {
+                const nextHistory = cursorHistory.slice(0, -1);
+                setCursorHistory(nextHistory);
+                setCursor(nextHistory.at(-1) || null);
+              }}
             >
               Previous
             </Button>
             <span className="text-sm text-muted">
-              Page {page} of {products.data.pages || 1}
+              Page {cursorHistory.length + 1}
             </span>
             <Button
               variant="outline"
-              disabled={page >= (products.data.pages || 1)}
-              onClick={() => update("page", String(page + 1))}
+              disabled={!products.data.has_more || products.isFetching}
+              onClick={() => {
+                setCursorHistory([...cursorHistory, products.data.next_cursor]);
+                setCursor(products.data.next_cursor);
+              }}
             >
               Next
             </Button>

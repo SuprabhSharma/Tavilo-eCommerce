@@ -7,6 +7,8 @@ export const updateVendorProfile = (payload) =>
   api.patch("/vendors/me/profile", payload).then((r) => r.data);
 export const getVendorProducts = (params) =>
   api.get("/products/vendor/me", { params }).then((r) => r.data);
+export const getVendorProductSummary = () =>
+  api.get("/products/vendor/me/summary").then((r) => r.data);
 export const getAllVendorProducts = async () => {
   const firstPage = await getVendorProducts({ page: 1, page_size: 100 });
   const pages = await Promise.all(
@@ -62,6 +64,8 @@ export const deleteVendorService = (uid) =>
   api.delete(`/services/vendor/me/${uid}`).then((r) => r.data);
 export const getVendorOrders = () =>
   api.get("/orders/vendor").then((r) => r.data);
+export const getVendorOrdersPage = (params) =>
+  api.get("/orders/vendor/page", { params }).then((r) => r.data);
 export const updateVendorSubOrderStatus = (subUid, status) =>
   api
     .patch(`/orders/vendor/sub-orders/${subUid}/status`, { status })

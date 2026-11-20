@@ -1,4 +1,5 @@
 from datetime import timedelta, timezone, datetime
+from html import escape
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -623,12 +624,37 @@ async def password_reset_request(
     # server and API request-path logs.  The frontend POSTs it in the body.
     link = f"{Config.FRONTEND_URL.rstrip('/')}/reset-password#token={quote(raw_token, safe='')}"
 
-    html_message = f"""
-    <h1>Reset Your Password</h1>
-    <p>Please click <a href="{link}">here</a> to reset your password.</p>
-    <p>This link expires in 30 minutes and can only be used once.</p>
-    """
-    subject = "Reset Your Password"
+    safe_link = escape(link, quote=True)
+    html_message = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Reset your Tavilo password</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Use the secure link to choose a new password for your Tavilo account.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f6f8;padding:32px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #e5e9ef;border-radius:12px;">
+          <tr><td style="padding:28px 36px 20px;border-bottom:1px solid #edf0f4;"><span style="font-size:22px;font-weight:700;letter-spacing:-0.4px;color:#078d8a;">Tavilo</span></td></tr>
+          <tr><td style="padding:32px 36px 12px;">
+            <h1 style="margin:0 0 16px;font-size:24px;line-height:1.3;color:#172033;">Reset your password</h1>
+            <p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#4b5565;">We received a request to reset the password for your Tavilo account. Use the button below to choose a new password.</p>
+            <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#4b5565;">For your security, this link expires in <strong>30 minutes</strong> and can be used only once.</p>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td bgcolor="#078d8a" style="border-radius:7px;"><a href="{safe_link}" style="display:inline-block;padding:13px 22px;border:1px solid #078d8a;border-radius:7px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Choose a new password</a></td></tr></table>
+            <p style="margin:24px 0 8px;font-size:13px;line-height:1.6;color:#667085;">If the button does not work, copy and paste this link into your browser:</p>
+            <p style="margin:0;word-break:break-all;font-size:12px;line-height:1.6;"><a href="{safe_link}" style="color:#078d8a;">{safe_link}</a></p>
+            <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#667085;">If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+          </td></tr>
+          <tr><td style="padding:20px 36px 26px;border-top:1px solid #edf0f4;"><p style="margin:0;font-size:12px;line-height:1.6;color:#8a94a3;">This is an automated security message from Tavilo. Please do not reply to this email.</p></td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>"""
+    subject = "Reset your Tavilo password"
 
     message = create_message(
         recipients=[email],

@@ -81,6 +81,15 @@ class VendorSubOrderOut(BaseModel):
     parent_order_status: str | None = None
 
 
+class VendorOrderPageOut(BaseModel):
+    items: list[VendorSubOrderOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    status_counts: dict[str, int]
+
+
 class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

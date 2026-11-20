@@ -50,5 +50,5 @@ class PasswordResetConfirmModel(BaseModel):
     # Sent in the request body after the browser reads it from a URL fragment;
     # it is never part of an API URL or a proxy/access-log path.
     token: str = Field(min_length=43, max_length=128)
-    new_password: str
-    confirm_new_password: str
+    new_password: str = Field(min_length=6, max_length=72)
+    confirm_new_password: str = Field(min_length=6, max_length=72)

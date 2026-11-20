@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -417,23 +417,36 @@ export function ForgotPassword() {
   );
 }
 export function ResetPassword() {
-  const navigate = useNavigate();
   const [token, setToken] = useState("");
+  const capturedToken = useRef("");
   const {
     register,
     handleSubmit,
-    formState: { isSubmitting },
+    formState: { errors, isSubmitting },
   } = useForm();
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [tokenChecked, setTokenChecked] = useState(false);
 
   useEffect(() => {
+    // React Strict Mode invokes effects twice in development. Preserve the
+    // token captured by the first pass after it clears the URL fragment.
+    if (capturedToken.current) {
+      setToken(capturedToken.current);
+      setTokenChecked(true);
+      return;
+    }
+
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const resetToken = fragment.get("token");
     if (!resetToken) {
       setError("This password reset link is invalid or expired.");
+      setTokenChecked(true);
       return;
     }
+    capturedToken.current = resetToken;
     setToken(resetToken);
+    setTokenChecked(true);
     // Keep the secret out of local browser history once it has been read.
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
@@ -441,36 +454,106 @@ export function ResetPassword() {
   const submit = async (data) => {
     if (!token) return;
     try {
+      setError("");
       await resetPassword(token, {
         new_password: data.password,
         confirm_new_password: data.confirm,
       });
-      navigate("/login?reset=1");
+      setToken("");
+      setSuccess(true);
     } catch (e) {
       setError(getErrorMessage(e));
     }
   };
   return (
     <AuthLayout>
-      <h1 className="text-2xl font-bold">Choose a new password</h1>
-      <form onSubmit={handleSubmit(submit)} className="mt-6 space-y-4">
-        <PasswordInput
-          label="New password"
-          {...register("password", { required: true, minLength: 6 })}
-        />
-        <PasswordInput
-          label="Confirm password"
-          {...register("confirm", { required: true })}
-        />
-        {error && (
-          <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            {error}
+      {!tokenChecked ? (
+        <div className="py-4 text-center" role="status" aria-live="polite">
+          <LoaderCircle
+            className="mx-auto animate-spin text-brand-600"
+            size={36}
+            aria-hidden="true"
+          />
+          <p className="mt-4 text-sm text-muted">Checking your reset link…</p>
+        </div>
+      ) : success ? (
+        <div className="text-center" role="status" aria-live="polite">
+          <CheckCircle2
+            className="mx-auto text-emerald-600"
+            size={48}
+            aria-hidden="true"
+          />
+          <h1 className="mt-5 text-2xl font-bold">Password updated</h1>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Your password has been reset successfully. Sign in with your new
+            password to continue.
           </p>
-        )}
-        <Button className="w-full" loading={isSubmitting}>
-          Update password
-        </Button>
-      </form>
+          <Link
+            to="/login"
+            className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+          >
+            Continue to sign in
+          </Link>
+        </div>
+      ) : (
+        <>
+          <h1 className="text-2xl font-bold">Choose a new password</h1>
+          {!token ? (
+            <div className="mt-5 space-y-4">
+              <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                {error || "This password reset link is invalid or expired."}
+              </p>
+              <Link
+                to="/forgot-password"
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-line bg-white px-4 text-sm font-semibold text-ink transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+              >
+                Request a new reset link
+              </Link>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit(submit)} className="mt-6 space-y-4">
+              <PasswordInput
+                label="New password"
+                autoComplete="new-password"
+                error={errors.password?.message}
+                {...register("password", {
+                  required: "Enter a new password.",
+                  minLength: {
+                    value: 6,
+                    message: "Password must be at least 6 characters.",
+                  },
+                  maxLength: {
+                    value: 72,
+                    message: "Password must be at most 72 characters.",
+                  },
+                })}
+              />
+              <PasswordInput
+                label="Confirm password"
+                autoComplete="new-password"
+                error={errors.confirm?.message}
+                {...register("confirm", {
+                  required: "Confirm your new password.",
+                  maxLength: {
+                    value: 72,
+                    message: "Password must be at most 72 characters.",
+                  },
+                  validate: (value, values) =>
+                    value === values.password || "Passwords do not match.",
+                })}
+              />
+              {error && (
+                <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  {error}
+                </p>
+              )}
+              <Button className="w-full" loading={isSubmitting}>
+                Update password
+              </Button>
+            </form>
+          )}
+        </>
+      )}
     </AuthLayout>
   );
 }
