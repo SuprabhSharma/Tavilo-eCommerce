@@ -124,7 +124,7 @@ export default function Account() {
           </p>
         </Link>
         <Link
-          to={isAdmin ? "/admin" : "/vendor"}
+          to={isAdmin ? "/admin" : isVendor ? "/vendor" : "/vendor/apply"}
           className="rounded-card border border-brand-100 bg-brand-50 p-5 hover:border-brand-200"
         >
           <Store className="text-brand-600" />

@@ -44,14 +44,14 @@ async def apply_as_vendor(
 # ── Vendor: own profile ───────────────────────────────────────────────────────
 
 
-@vendor_router.get("/me/profile", response_model=VendorOut)
+@vendor_router.get("/me/profile", response_model=VendorOut | None)
 async def get_my_profile(
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
     vendor = await service.get_by_user_id(current_user.uid, session)
     if not vendor:
-        raise VendorNotFound()
+        return None
     return vendor
 
 

@@ -73,8 +73,18 @@ export function Login() {
           ? rawNext
           : null;
 
+      let destination = safeNext;
+      // Guard vendor routes: non-vendors should never be routed to the vendor portal
+      if (
+        destination?.startsWith("/vendor") &&
+        session.user?.role !== "vendor" &&
+        session.user?.role !== "admin"
+      ) {
+        destination = destination.startsWith("/vendor/apply") ? "/vendor/apply" : "/";
+      }
+
       navigate(
-        safeNext ||
+        destination ||
           (session.user?.role === "admin"
             ? "/admin"
             : session.user?.role === "vendor"

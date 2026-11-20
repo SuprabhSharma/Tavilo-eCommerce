@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
+  Navigate,
   NavLink,
   Route,
   Routes,
@@ -73,24 +74,61 @@ import {
 import { getErrorMessage } from "../lib/errors";
 import { formatCurrency, formatDate, orderItemImage } from "../lib/formatters";
 import ProductImage from "../components/ProductImage";
+import { useAuthStore } from "../store/authStore";
 
 const LOW_STOCK_THRESHOLD = 5;
 const getVendorOrderStatus = (order) =>
   String(order?.status || "").trim().toLowerCase();
 
-const navItems = [
-  { to: "/vendor", label: "Overview", icon: LayoutDashboard },
-  { to: "/vendor/orders", label: "Orders", icon: ShoppingBag },
-  { to: "/vendor/products", label: "Products", icon: Package },
-  { to: "/vendor/services", label: "Services", icon: Store },
-  { to: "/vendor/settings", label: "Store settings", icon: Store },
-];
-
 export default function VendorPortal() {
+  const user = useAuthStore((s) => s.user);
   const profile = useQuery({
     queryKey: ["vendor-profile"],
     queryFn: getVendorProfile,
+    retry: false,
   });
+
+  const isApprovedVendor =
+    profile.data?.status === "approved" ||
+    (user?.role === "vendor" && profile.data && profile.data.status !== "suspended");
+
+  // Loading state while checking vendor profile
+  if (profile.isLoading) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <LoadingPanel />
+      </div>
+    );
+  }
+
+  // Customers & unapproved applicants do not have a seller management dashboard.
+  // Render the clean application form or pending review status without sidebar.
+  if (!isApprovedVendor) {
+    if (profile.data?.status === "pending") {
+      return (
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+          <BackLink to="/account" />
+          <div className="mt-4">
+            <PendingVendor profile={profile.data} />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <VendorApplication profile={profile} />
+      </div>
+    );
+  }
+
+  const navItems = [
+    { to: "/vendor", label: "Overview", icon: LayoutDashboard },
+    { to: "/vendor/orders", label: "Orders", icon: ShoppingBag },
+    { to: "/vendor/products", label: "Products", icon: Package },
+    { to: "/vendor/services", label: "Services", icon: Store },
+    { to: "/vendor/settings", label: "Store settings", icon: Store },
+  ];
 
   return (
     <div className="mx-auto min-w-0 max-w-7xl overflow-x-clip px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
@@ -115,7 +153,7 @@ export default function VendorPortal() {
               Seller centre
             </p>
             <p className="mt-1 truncate text-sm font-medium text-brand-900">
-              {profile.data?.store_name || "Set up your store"}
+              {profile.data?.store_name || "Your store"}
             </p>
           </div>
           <nav className="flex max-w-full gap-1 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] lg:block lg:space-y-1 lg:overflow-visible [&::-webkit-scrollbar]:hidden">
@@ -142,10 +180,6 @@ export default function VendorPortal() {
           <Routes>
             <Route index element={<VendorOverview profile={profile} />} />
             <Route
-              path="apply"
-              element={<VendorApplication profile={profile} />}
-            />
-            <Route
               path="orders"
               element={<VendorOrders profile={profile} />}
             />
@@ -161,7 +195,7 @@ export default function VendorPortal() {
               path="settings"
               element={<VendorSettings profile={profile} />}
             />
-            <Route path="*" element={<VendorOverview profile={profile} />} />
+            <Route path="*" element={<Navigate to="/vendor" replace />} />
           </Routes>
         </main>
       </div>
@@ -171,7 +205,7 @@ export default function VendorPortal() {
 
 function VendorOverview({ profile }) {
   if (profile.isLoading) return <LoadingPanel />;
-  if (profile.isError) return <ApplicationPrompt />;
+  if (profile.isError || !profile.data) return <ApplicationPrompt />;
   if (profile.data.status !== "approved")
     return <PendingVendor profile={profile.data} />;
   return <ApprovedOverview vendor={profile.data} />;
@@ -242,13 +276,13 @@ function VendorApplication({ profile }) {
   if (!profile.isError && profile.data)
     return (
       <div className="rounded-card border border-line bg-white p-7">
-        <BackLink to="/vendor" />
+        <BackLink to="/account" />
         <StatusCard vendor={profile.data} />
       </div>
     );
   return (
     <div>
-      <BackLink to="/vendor" />
+      <BackLink to="/account" />
       <PageHeader
         eyebrow="Become a vendor"
         title="Set up your store"
@@ -398,10 +432,12 @@ function ApprovedOverview({ vendor }) {
   const products = useQuery({
     queryKey: ["vendor-products"],
     queryFn: getAllVendorProducts,
+    enabled: vendor?.status === "approved",
   });
   const ordersQuery = useQuery({
     queryKey: ["vendor-orders"],
     queryFn: getVendorOrders,
+    enabled: vendor?.status === "approved",
   });
   const orderList = useMemo(() => {
     const orders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
@@ -709,7 +745,7 @@ function VendorProducts({ profile }) {
     [items, deferredSearch],
   );
   if (profile.isLoading) return <LoadingPanel />;
-  if (profile.isError) return <ApplicationPrompt />;
+  if (profile.isError || !profile.data) return <ApplicationPrompt />;
   if (profile.data.status !== "approved")
     return <PendingVendor profile={profile.data} />;
   return (
@@ -934,7 +970,7 @@ function VendorServices({ profile }) {
     onError: (e) => setError(getErrorMessage(e)),
   });
   if (profile.isLoading) return <LoadingPanel />;
-  if (profile.isError) return <ApplicationPrompt />;
+  if (profile.isError || !profile.data) return <ApplicationPrompt />;
   if (profile.data.status !== "approved")
     return <PendingVendor profile={profile.data} />;
   const items = services.data?.items || [];
@@ -1710,7 +1746,7 @@ function VendorSettings({ profile }) {
     onError: (e) => setError(getErrorMessage(e)),
   });
   if (profile.isLoading) return <LoadingPanel />;
-  if (profile.isError) return <ApplicationPrompt />;
+  if (profile.isError || !profile.data) return <ApplicationPrompt />;
   return (
     <div>
       <BackLink to="/vendor" />
@@ -1836,6 +1872,7 @@ function VendorOrders({ profile }) {
   const ordersQuery = useQuery({
     queryKey: ["vendor-orders"],
     queryFn: getVendorOrders,
+    enabled: profile.data?.status === "approved",
     // Keep counts and order rows in sync with changes made elsewhere.
     refetchInterval: 15000,
     refetchIntervalInBackground: false,
