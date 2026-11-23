@@ -22,13 +22,14 @@
 }
 
 :root {
-  --brand-50:  #e9fbfa;
-  --brand-100: #c8f3f1;
-  --brand-500: #20c7c0;
-  --brand-600: #0bb5b0;
-  --brand-700: #078d8a;
-  --accent:    #f5a623;
+  --brand-50:  #eefcfb;
+  --brand-100: #d0f7f5;
+  --brand-500: #14b8b2;
+  --brand-600: #0b9e99;
+  --brand-700: #067c78;
+  --accent:    #f59e0b;
   --ink:       #10284b;
+  --ink-light: #233b5d;
   --muted:     #64748b;
   --surface:   #ffffff;
   --line:      #dbe7ed;
@@ -43,19 +44,66 @@ html { scroll-behavior: auto; }
 body {
   margin: 0;
   min-width: 320px;
-  background: #f6fbfc;
+  background: #f4f8fb;
   font-family: Poppins, ui-sans-serif, system-ui, sans-serif;
   color: var(--ink);
   /* Enable GPU compositing for the whole page — reduces paint cost on scroll. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeSpeed;
+  text-rendering: optimizeLegibility;
 }
 
 button, input, select { font: inherit; }
 /* Remove 300 ms tap delay on mobile without disabling pinch-zoom. */
 button, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 ::selection { background: var(--brand-100); color: var(--brand-700); }
+
+/* Tactile 3D and physical surface utilities */
+.btn-3d-primary {
+  background: linear-gradient(180deg, #16cac4 0%, #0bb5b0 60%, #079c97 100%);
+  box-shadow: 0 2px 5px rgba(7, 141, 138, 0.35), 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-3d-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #19d3cd 0%, #0ebdb8 60%, #08a39e 100%);
+  box-shadow: 0 4px 12px rgba(7, 141, 138, 0.45), 0 1px 3px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: translateY(-1px);
+}
+.btn-3d-primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #079c97 0%, #0aa39e 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+  transform: translateY(1px);
+}
+
+.btn-3d-white {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.05), inset 0 1px 0 #ffffff;
+  border: 1px solid #cbdbe6;
+  transition: all 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-3d-white:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #94a3b8;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12), inset 0 1px 0 #ffffff;
+  transform: translateY(-1px);
+}
+.btn-3d-white:active:not(:disabled) {
+  background: #f1f5f9;
+  box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+  transform: translateY(1px);
+}
+
+.card-3d {
+  background: #ffffff;
+  border: 1px solid rgba(203, 219, 230, 0.85);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 6px 16px -2px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease;
+}
+.card-3d:hover {
+  transform: translateY(-2px);
+  border-color: rgba(11, 181, 176, 0.4);
+  box-shadow: 0 14px 30px -4px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.05), inset 0 1px 0 #ffffff;
+}
 
 /* Ensure images never overflow their containers and are hardware accelerated. */
 img { max-width: 100%; display: block; }

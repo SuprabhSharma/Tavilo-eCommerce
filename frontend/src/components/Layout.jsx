@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
@@ -73,9 +73,15 @@ function updatePageMeta(pathname) {
 
 export default function ShopLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
+  const urlQuery = location.pathname === "/search"
+    ? new URLSearchParams(location.search).get("q") || ""
+    : "";
+  const [query, setQuery] = useState(urlQuery);
+  const debounceTimerRef = useRef(null);
+  const lastNavigatedQueryRef = useRef(urlQuery);
+  const inputRef = useRef(null);
   const user = useAuthStore((state) => state.user);
   const accessToken = useAuthStore((state) => state.accessToken);
   const logout = useAuthStore((state) => state.logout);
@@ -100,9 +106,110 @@ export default function ShopLayout() {
   useEffect(() => {
     updatePageMeta(location.pathname);
   }, [location.pathname]);
+
+  // Synchronize header search bar with active route & query parameters
+  useEffect(() => {
+    const isSearch = location.pathname === "/search";
+    const urlQ = isSearch
+      ? new URLSearchParams(location.search).get("q") || ""
+      : "";
+
+    // Sync only when URL change originated externally (back/forward browser navigation, page reload, or link clicks)
+    if (urlQ !== lastNavigatedQueryRef.current) {
+      lastNavigatedQueryRef.current = urlQ;
+      setQuery(urlQ);
+    } else if (!isSearch && location.pathname !== "/products") {
+      // When navigating away from catalog pages to another page (e.g. /cart), clear search input
+      if (query) {
+        setQuery("");
+        lastNavigatedQueryRef.current = "";
+      }
+    }
+  }, [location.pathname, location.search, query]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleQueryChange = (e) => {
+    const nextVal = e.target.value;
+    setQuery(nextVal);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    const trimmed = nextVal.trim();
+    const isSearchRoute = location.pathname === "/search";
+    const isProductsRoute = location.pathname === "/products";
+
+    if (isSearchRoute || isProductsRoute) {
+      if (!trimmed) {
+        // User manually cleared the search (backspaced all or cut/deleted)
+        // Promptly replace URL to /products so refreshing keeps all products without reverting
+        debounceTimerRef.current = setTimeout(() => {
+          lastNavigatedQueryRef.current = "";
+          navigate("/products", { replace: true });
+        }, 150);
+      } else {
+        // User typed or partially deleted (e.g. from "youtube" to "yout")
+        // Debounce update URL to ?q=... with replace: true so browser history isn't polluted
+        debounceTimerRef.current = setTimeout(() => {
+          lastNavigatedQueryRef.current = trimmed;
+          navigate(`/search?q=${encodeURIComponent(trimmed)}`, { replace: true });
+        }, 200);
+      }
+    } else {
+      // User is on a non-search page (e.g. Home, Product Detail, Cart).
+      // Debounce typing to navigate to /search?q=... (push navigation so Back returns to original page)
+      if (trimmed) {
+        debounceTimerRef.current = setTimeout(() => {
+          lastNavigatedQueryRef.current = trimmed;
+          navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+        }, 300);
+      }
+    }
+  };
+
+  const handleClear = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    setQuery("");
+    lastNavigatedQueryRef.current = "";
+    if (location.pathname === "/search" || location.pathname === "/products") {
+      navigate("/products", { replace: true });
+    }
+    inputRef.current?.focus();
+  };
+
   const submitSearch = (event) => {
-    event.preventDefault();
-    if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const trimmed = (query || "").trim();
+    if (trimmed) {
+      lastNavigatedQueryRef.current = trimmed;
+      if (location.pathname === "/search") {
+        navigate(`/search?q=${encodeURIComponent(trimmed)}`, { replace: true });
+      } else {
+        navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+      }
+    } else {
+      lastNavigatedQueryRef.current = "";
+      navigate("/products", { replace: true });
+    }
   };
   const signOut = async () => {
     try {
@@ -121,13 +228,13 @@ export default function ShopLayout() {
   const guestWishlistCount = useGuestStore((state) => state.wishlist.items.length);
   const wishlistCount = isAuthenticated ? authWishlistCount : guestWishlistCount;
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 text-ink md:pb-0">
-      <header className="sticky top-0 z-30 border-b border-line bg-white">
+    <div className="min-h-screen bg-[#f4f8fb] pb-20 text-ink md:pb-0">
+      <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md shadow-[0_4px_20px_-4px_rgba(15,23,42,0.06),inset_0_-1px_0_rgba(255,255,255,0.8)]">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
           <button
             aria-label="Open menu"
             onClick={() => setMenuOpen(true)}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-ink hover:bg-slate-100 md:hidden"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200/80 bg-white shadow-tactile text-ink hover:bg-slate-50 md:hidden active:scale-95 transition"
           >
             <Menu size={20} />
           </button>
@@ -140,33 +247,61 @@ export default function ShopLayout() {
             />
           </Link>
           <form
+            action="#"
             onSubmit={submitSearch}
-            className="flex min-w-0 flex-1 items-center rounded-lg bg-slate-100 px-2.5 sm:px-3 focus-within:ring-2 focus-within:ring-brand-100"
+            className="flex min-w-0 flex-1 items-center rounded-xl bg-slate-100/90 border border-slate-300/80 px-3 shadow-[inset_0_2px_4px_rgba(15,23,42,0.04)] focus-within:bg-white focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/15 focus-within:shadow-[0_2px_10px_rgba(11,181,176,0.12)] transition-all"
           >
-            <Search size={16} className="shrink-0 text-muted" />
+            <Search size={16} className="shrink-0 text-slate-500" />
             <input
+              ref={inputRef}
+              type="text"
               aria-label="Search products"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={handleQueryChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  submitSearch(e);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  handleClear();
+                }
+              }}
               placeholder="Search products..."
-              className="h-10 w-full min-w-0 bg-transparent px-2 text-xs sm:text-sm outline-none placeholder:text-muted"
+              autoComplete="off"
+              spellCheck="false"
+              className="h-10 w-full min-w-0 bg-transparent px-2.5 text-xs sm:text-sm font-medium text-ink outline-none placeholder:text-slate-400"
             />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={handleClear}
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-ink transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+            <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true">
+              Search
+            </button>
           </form>
 
           {/* Desktop-only Auth (Account / Sign In / Log Out) */}
-          <div className="hidden items-center gap-1.5 md:flex">
+          <div className="hidden items-center gap-2 md:flex">
             {isAuthenticated ? (
               <>
                 <NavLink
                   to="/account"
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100"
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-3.5 py-2 text-sm font-bold shadow-tactile hover:bg-slate-50 transition active:scale-95"
                 >
                   <UserRound size={17} className="text-brand-600" />
                   <span>Hi, {user.first_name || user.email?.split("@")[0]}</span>
                 </NavLink>
                 <button
                   onClick={signOut}
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 px-3 py-2 text-sm font-bold text-red-600 shadow-sm hover:bg-red-100 transition-colors active:scale-95"
                 >
                   <LogOut size={16} />
                   <span>Log out</span>
@@ -175,7 +310,7 @@ export default function ShopLayout() {
             ) : (
               <Link
                 to="/login"
-                className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+                className="btn-3d-primary rounded-xl px-4 py-2 text-sm font-extrabold text-white shadow-md active:scale-95"
               >
                 Sign in
               </Link>
@@ -183,15 +318,15 @@ export default function ShopLayout() {
           </div>
 
           {/* Desktop-only Wishlist & Cart icons: On mobile, these are already in the bottom navigation bar */}
-          <div className="hidden items-center gap-0.5 sm:gap-1 md:flex">
+          <div className="hidden items-center gap-1.5 sm:gap-2 md:flex">
             <Link
               to="/wishlist"
               aria-label="Wishlist"
-              className="relative grid h-10 w-10 place-items-center rounded-lg text-ink hover:bg-slate-100"
+              className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200/80 bg-white shadow-tactile text-ink hover:bg-slate-50 active:scale-95 transition"
             >
-              <Heart size={20} className={wishlistCount > 0 ? "text-brand-600" : "text-ink"} />
+              <Heart size={20} className={wishlistCount > 0 ? "text-brand-600 fill-brand-600" : "text-ink"} />
               {wishlistCount > 0 && (
-                <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
                   {wishlistCount}
                 </span>
               )}
@@ -199,26 +334,26 @@ export default function ShopLayout() {
             <Link
               to="/cart"
               aria-label="Cart"
-              className="relative grid h-10 w-10 place-items-center rounded-lg text-ink hover:bg-slate-100"
+              className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200/80 bg-white shadow-tactile text-ink hover:bg-slate-50 active:scale-95 transition"
             >
               <ShoppingBag size={20} />
               {count > 0 && (
-                <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
                   {count}
                 </span>
               )}
             </Link>
           </div>
         </div>
-        <div className="hidden border-t border-line md:block">
-          <div className="mx-auto flex h-11 max-w-7xl items-center gap-6 px-4 text-sm text-muted sm:px-6 lg:px-8">
-            <Link to="/products" className="font-medium hover:text-brand-600">
+        <div className="hidden border-t border-slate-200/80 bg-white/60 backdrop-blur-sm md:block">
+          <div className="mx-auto flex h-11 max-w-7xl items-center gap-6 px-4 text-sm font-semibold text-slate-600 sm:px-6 lg:px-8">
+            <Link to="/products" className="hover:text-brand-600 transition-colors">
               All products
             </Link>
-            <Link to="/products?sort=rating" className="hover:text-brand-600">
+            <Link to="/products?sort=rating" className="hover:text-brand-600 transition-colors">
               Top rated
             </Link>
-            <Link to="/products?sort=newest" className="hover:text-brand-600">
+            <Link to="/products?sort=newest" className="hover:text-brand-600 transition-colors">
               New arrivals
             </Link>
           </div>
@@ -373,24 +508,28 @@ export default function ShopLayout() {
           </p>
         </div>
       </footer>
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-line bg-white px-2 pt-2 md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4.25rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-slate-200/90 bg-white/95 backdrop-blur-lg px-2 pt-2 shadow-[0_-8px_24px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] md:hidden">
         {nav.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             className={({ isActive }) =>
-              `relative flex min-w-14 flex-col items-center gap-1 text-[11px] ${isActive ? "font-semibold text-brand-600" : "text-muted"}`
+              `relative flex min-w-14 flex-col items-center gap-1 rounded-xl px-2 py-1 text-[11px] transition-all active:scale-95 ${
+                isActive
+                  ? "font-extrabold text-brand-700 bg-brand-50 shadow-[0_1px_3px_rgba(11,181,176,0.18),inset_0_1px_0_rgba(255,255,255,0.9)]"
+                  : "font-semibold text-slate-500 hover:text-ink"
+              }`
             }
           >
-            <Icon size={19} />
+            <Icon size={20} strokeWidth={2.2} />
             <span>{label}</span>
             {to === "/cart" && count > 0 && (
-              <span className="absolute right-1 top-[-4px] grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] text-white">
+              <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
                 {count}
               </span>
             )}
             {to === "/wishlist" && wishlistCount > 0 && (
-              <span className="absolute right-1 top-[-4px] grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] text-white">
+              <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
                 {wishlistCount}
               </span>
             )}

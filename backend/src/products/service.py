@@ -237,7 +237,7 @@ class ProductService:
                     page=page, page_size=page_size,
                     pages=0 if include_total is not False else None,
                 )
-        clean_query = query.strip() if query else None
+        clean_query = query.strip() if (query and query.strip()) else None
         if clean_query:
             stmt = stmt.where(Product.title.ilike(f"%{self._escape_like(clean_query)}%", escape="!"))
         if min_price is not None:
@@ -302,7 +302,7 @@ class ProductService:
         include_total: Optional[bool] = None,
     ) -> VendorProductListOut:
         stmt = select(Product).where(Product.vendor_id == vendor_id)
-        clean_query = query.strip() if query else None
+        clean_query = query.strip() if (query and query.strip()) else None
         if clean_query:
             pattern = f"%{self._escape_like(clean_query)}%"
             # ILIKE matches the pg_trgm indexes directly. The old lower(...)

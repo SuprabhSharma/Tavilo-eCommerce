@@ -169,29 +169,45 @@ function ProductCard({ product, priority = false }) {
   const srcSet = imageSrcSet(rawSrc);
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden rounded-card border border-line bg-white p-2.5 shadow-card transition hover:-translate-y-0.5 hover:shadow-float sm:p-3">
-      <Link
-        to={`/p/${product.slug}`}
-        className="relative block aspect-square overflow-hidden rounded-lg bg-slate-100"
-      >
-        <ProductImage
-          src={src}
-          srcSet={srcSet}
-          sizes="(min-width:1024px) 25vw, 50vw"
-          alt={product.title}
-          width={480}
-          height={480}
-          loading={priority ? "eager" : "lazy"}
-          fetchPriority={priority ? "high" : "auto"}
-          fallbackSeed={product.slug || product.uid}
-          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-        />
+    <article className="group flex min-w-0 flex-col overflow-hidden rounded-2card border border-slate-200/90 bg-white p-2.5 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-card-hover sm:p-3 relative">
+      <div className="relative block aspect-square overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-900/5">
+        <Link
+          to={`/p/${product.slug}`}
+          className="block h-full w-full"
+          aria-label={product.title}
+        >
+          <ProductImage
+            src={src}
+            srcSet={srcSet}
+            sizes="(min-width:1024px) 25vw, 50vw"
+            alt={product.title}
+            width={480}
+            height={480}
+            loading={priority ? "eager" : "lazy"}
+            fetchPriority={priority ? "high" : "auto"}
+            fallbackSeed={product.slug || product.uid}
+            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+          />
+        </Link>
         {!product.is_available && (
-          <span className="absolute left-2 top-2 rounded bg-slate-900/80 px-2 py-1 text-xs text-white">
+          <span className="absolute left-2 top-2 rounded-md bg-slate-900/80 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
             Sold out
           </span>
         )}
-      </Link>
+        <button
+          type="button"
+          aria-label={saved ? "Remove from wishlist" : "Add to wishlist"}
+          onClick={toggleWishlist}
+          disabled={wishlistMutation.isPending}
+          className={`absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full backdrop-blur-md transition-all active:scale-90 shadow-sm ${
+            saved
+              ? "bg-red-50 text-red-500 border border-red-200 shadow-red-500/20"
+              : "bg-white/90 text-slate-600 hover:text-red-500 border border-white/80 hover:bg-white"
+          } disabled:opacity-40`}
+        >
+          <Heart size={16} fill={saved ? "currentColor" : "none"} />
+        </button>
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-1 pt-2">
         <p className="mb-1 truncate text-xs text-muted">
@@ -199,48 +215,33 @@ function ProductCard({ product, priority = false }) {
         </p>
         <Link
           to={`/p/${product.slug}`}
-          className="line-clamp-2 text-sm font-semibold leading-5 text-ink hover:text-brand-600"
+          className="line-clamp-2 text-sm font-semibold leading-snug text-ink hover:text-brand-600 transition-colors"
         >
           {product.title}
         </Link>
         <div className="mt-1">
           <Rating value={product.rating_avg} count={product.rating_count ?? product.review_count} compact />
         </div>
-        <div className="pt-1">
+        <div className="mt-auto pt-2">
           <ProductPrice price={product.price} mrp={product.mrp} />
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              aria-label={inCart ? "Go to cart" : "Add to cart"}
-              aria-pressed={inCart}
-              onClick={addToCart}
-              disabled={(!product.is_available && !inCart) || cartMutation.isPending}
-              className={`inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-                inCart
-                  ? "border-emerald-600 bg-emerald-600 text-white hover:border-emerald-700 hover:bg-emerald-700"
-                  : "border-brand-200 bg-brand-50 text-brand-700 hover:border-brand-300 hover:bg-brand-100"
-              }`}
-            >
-              {inCart ? <ShoppingCart size={16} strokeWidth={2.25} /> : <ShoppingBag size={16} strokeWidth={2.25} />}
-              <span>{inCart ? "Go to cart" : "Add to cart"}</span>
-            </button>
-            <button
-              type="button"
-              aria-label={saved ? "Remove from wishlist" : "Add to wishlist"}
-              onClick={toggleWishlist}
-              disabled={wishlistMutation.isPending}
-              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border transition ${
-                saved
-                  ? "border-red-200 bg-red-50 text-red-500"
-                  : "border-line text-muted hover:border-red-200 hover:bg-red-50 hover:text-red-500"
-              } disabled:opacity-40`}
-            >
-              <Heart size={19} fill={saved ? "currentColor" : "none"} />
-            </button>
-          </div>
+          <button
+            type="button"
+            aria-label={inCart ? "Go to cart" : "Add to cart"}
+            aria-pressed={inCart}
+            onClick={addToCart}
+            disabled={(!product.is_available && !inCart) || cartMutation.isPending}
+            className={`mt-2.5 inline-flex min-h-[42px] w-full items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold tracking-tight transition active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:opacity-50 ${
+              inCart
+                ? "bg-emerald-600 text-white shadow-[0_2px_6px_rgba(5,150,105,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:bg-emerald-700"
+                : "btn-3d-primary text-white"
+            }`}
+          >
+            {inCart ? <ShoppingCart size={15} strokeWidth={2.2} /> : <ShoppingBag size={15} strokeWidth={2.2} />}
+            <span>{inCart ? "Go to cart" : "Add to cart"}</span>
+          </button>
         </div>
         {message && (
-          <p className="mt-1 truncate text-[11px] text-muted" role="status" aria-live="polite">
+          <p className="mt-1.5 truncate text-[11px] font-medium text-brand-700" role="status" aria-live="polite">
             {message}
           </p>
         )}

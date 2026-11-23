@@ -68,7 +68,7 @@ async def list_products(
     page_size: int = Query(20, ge=1, le=200),
     category: str | None = Query(None),
     vendor: str | None = Query(None),
-    q: str | None = Query(None, min_length=1, max_length=100),
+    q: str | None = Query(None, max_length=100),
     ids: str | None = Query(None, description="Comma-separated product UUIDs"),
     min_price: Decimal | None = Query(None),
     max_price: Decimal | None = Query(None),

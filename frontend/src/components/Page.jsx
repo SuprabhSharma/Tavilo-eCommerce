@@ -38,11 +38,12 @@ export const SectionTitle = ({
 export const ProductGridSkeleton = () => (
   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
     {Array.from({ length: 8 }).map((_, i) => (
-      <div key={i} className="rounded-card border border-line bg-white p-3">
-        <Skeleton className="aspect-[1.05]" />
-        <Skeleton className="mt-4 h-3 w-1/3" />
-        <Skeleton className="mt-2 h-4 w-full" />
-        <Skeleton className="mt-3 h-5 w-1/2" />
+      <div key={i} className="rounded-2card border border-slate-200/90 bg-white p-3 shadow-card">
+        <Skeleton className="aspect-square rounded-xl" />
+        <Skeleton className="mt-3.5 h-3 w-1/3 rounded-md" />
+        <Skeleton className="mt-2 h-4 w-full rounded-md" />
+        <Skeleton className="mt-3 h-5 w-1/2 rounded-md" />
+        <Skeleton className="mt-3 h-10 w-full rounded-xl" />
       </div>
     ))}
   </div>

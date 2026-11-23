@@ -2006,24 +2006,18 @@ function VendorOrders({ profile }) {
         title="Order Management"
         description="Process store orders, manage fulfillment steps, and keep customer deliveries on track."
         action={
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="px-3"
-              loading={ordersQuery.isFetching}
-              disabled={ordersQuery.isFetching}
-              onClick={() => ordersQuery.refetch()}
-              aria-label="Refresh vendor orders"
-            >
-              {!ordersQuery.isFetching && <RotateCcw size={15} />}
-              Refresh
-            </Button>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
-              <span className="h-2 w-2 rounded-full bg-brand-600 animate-pulse" />
-              {rawOrders.length} Total Orders
-            </span>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="px-3"
+            loading={ordersQuery.isFetching}
+            disabled={ordersQuery.isFetching}
+            onClick={() => ordersQuery.refetch()}
+            aria-label="Refresh vendor orders"
+          >
+            {!ordersQuery.isFetching && <RotateCcw size={15} />}
+            Refresh
+          </Button>
         }
       />
 

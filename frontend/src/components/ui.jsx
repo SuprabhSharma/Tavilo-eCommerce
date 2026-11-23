@@ -18,20 +18,20 @@ export const Button = ({
 }) => {
   const variantStyles =
     variant === "primary"
-      ? "bg-brand-600 text-white hover:bg-brand-700"
+      ? "btn-3d-primary text-white font-semibold"
       : variant === "white"
-      ? "bg-white text-slate-900 hover:bg-slate-100 shadow-sm font-semibold"
+      ? "btn-3d-white text-ink font-semibold"
       : variant === "accent"
-      ? "bg-brand-400 text-slate-950 hover:bg-brand-300 font-bold"
+      ? "bg-amber-400 text-slate-950 hover:bg-amber-300 font-semibold shadow-[0_2px_5px_rgba(245,158,11,0.3),inset_0_1px_0_rgba(255,255,255,0.4)]"
       : variant === "soft"
-      ? "bg-brand-50 text-brand-700 hover:bg-brand-100"
+      ? "bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 hover:border-brand-300 shadow-[0_1px_2px_rgba(11,181,176,0.1),inset_0_1px_0_rgba(255,255,255,0.8)] font-semibold"
       : variant === "danger"
-      ? "bg-red-50 text-red-700 hover:bg-red-100"
-      : "border border-line bg-white text-ink hover:bg-slate-50";
+      ? "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 font-semibold shadow-sm"
+      : "border border-line bg-white text-ink font-semibold hover:bg-slate-50 hover:border-slate-300 shadow-[0_1px_2px_rgba(15,23,42,0.04),inset_0_1px_0_#ffffff]";
 
   return (
     <button
-      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${variantStyles} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm tracking-tight transition active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-brand-500/20 disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none ${variantStyles} ${className}`}
       disabled={loading || props.disabled}
       {...props}
     >
@@ -46,10 +46,10 @@ export const Input = forwardRef(
       <span className="text-sm font-medium text-ink">{label}</span>
       <input
         ref={ref}
-        className={`h-11 w-full rounded-lg border bg-white px-3 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 ${error ? "border-red-400" : "border-line"} ${className}`}
+        className={`h-11 w-full rounded-xl border bg-white px-3.5 text-sm text-ink shadow-[inset_0_1.5px_3px_rgba(15,23,42,0.03)] outline-none transition placeholder:text-slate-400 focus:border-brand-600 focus:ring-4 focus:ring-brand-500/15 focus:shadow-sm ${error ? "border-red-400" : "border-line"} ${className}`}
         {...props}
       />
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs font-medium text-red-600">{error}</span>}
     </label>
   ),
 );
@@ -65,7 +65,7 @@ export const PasswordInput = forwardRef(
           <input
             ref={ref}
             type={visible ? "text" : "password"}
-            className={`h-11 w-full rounded-lg border bg-white px-3 pr-11 text-sm text-ink outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 ${error ? "border-red-400" : "border-line"} ${className}`}
+            className={`h-11 w-full rounded-xl border bg-white px-3.5 pr-11 text-sm text-ink shadow-[inset_0_1.5px_3px_rgba(15,23,42,0.03)] outline-none transition placeholder:text-slate-400 focus:border-brand-600 focus:ring-4 focus:ring-brand-500/15 focus:shadow-sm ${error ? "border-red-400" : "border-line"} ${className}`}
             {...props}
           />
           <button
@@ -79,7 +79,7 @@ export const PasswordInput = forwardRef(
             {visible ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
         </span>
-        {error && <span className="text-xs text-red-600">{error}</span>}
+        {error && <span className="text-xs font-medium text-red-600">{error}</span>}
       </label>
     );
   },
@@ -89,7 +89,7 @@ export const Select = ({ label, children, ...props }) => (
   <label className="block space-y-1.5">
     <span className="text-sm font-medium text-ink">{label}</span>
     <select
-      className="h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+      className="h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink shadow-[0_1px_2px_rgba(15,23,42,0.03),inset_0_1px_0_#ffffff] outline-none transition focus:border-brand-600 focus:ring-4 focus:ring-brand-500/15"
       {...props}
     >
       {children}
@@ -98,14 +98,14 @@ export const Select = ({ label, children, ...props }) => (
 );
 export const Badge = ({ children, tone = "neutral" }) => (
   <span
-    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${tone === "success" ? "bg-emerald-50 text-emerald-700" : tone === "warning" ? "bg-amber-50 text-amber-700" : tone === "danger" ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-600"}`}
+    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-tight shadow-sm ${tone === "success" ? "bg-emerald-50 text-emerald-800 border border-emerald-300/80" : tone === "warning" ? "bg-amber-50 text-amber-900 border border-amber-300/80" : tone === "danger" ? "bg-red-50 text-red-800 border border-red-300/80" : "bg-slate-100 text-slate-700 border border-slate-300/80"}`}
   >
     {children}
   </span>
 );
 export const Rating = ({ value = 0, count, compact = false }) => (
-  <span className="inline-flex items-center gap-1 text-sm">
-    <span className="inline-flex items-center gap-0.5 rounded bg-emerald-600 px-1.5 py-0.5 font-semibold text-white">
+  <span className="inline-flex items-center gap-1.5 text-sm">
+    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white shadow-[0_1px_2px_rgba(5,150,105,0.3),inset_0_1px_0_rgba(255,255,255,0.25)]">
       <Star size={compact ? 11 : 13} fill="currentColor" />
       {Number(value).toFixed(1)}
     </span>

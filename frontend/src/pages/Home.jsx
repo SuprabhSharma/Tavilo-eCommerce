@@ -21,50 +21,52 @@ export default function Home() {
   });
   return (
     <div>
-      <section className="bg-brand-700 text-white">
-        <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 py-14 sm:px-6 md:grid-cols-[1.1fr_.9fr] md:py-20 lg:px-8">
+      <section className="relative overflow-hidden bg-gradient-to-br from-[#066f6a] via-[#088b86] to-[#044e4b] text-white shadow-lg">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-brand-400/25 blur-3xl" />
+        <div className="pointer-events-none absolute -left-20 bottom-0 h-64 w-64 rounded-full bg-emerald-400/15 blur-2xl" />
+        <div className="relative mx-auto grid max-w-7xl items-center gap-8 px-4 py-12 sm:px-6 md:grid-cols-[1.1fr_.9fr] md:py-20 lg:px-8">
           <div>
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-blue-100">
+            <p className="mb-3 text-xs sm:text-sm font-extrabold uppercase tracking-[0.2em] text-teal-100">
               {brand.tagline}
             </p>
-            <h1 className="max-w-xl text-4xl font-bold tracking-tight sm:text-5xl">
+            <h1 className="max-w-xl text-3xl font-extrabold tracking-tight sm:text-5xl drop-shadow-sm">
               A better way to find what fits your life.
             </h1>
-            <p className="mt-5 max-w-lg text-base leading-7 text-blue-100">
+            <p className="mt-4 max-w-lg text-sm sm:text-base leading-relaxed text-teal-50/90 font-medium">
               Explore thoughtful products from independent stores, with clear
               prices and a checkout that stays simple.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-7 flex flex-wrap gap-3">
               <Link
                 to="/products"
-                className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-5 text-sm font-bold text-brand-700 hover:bg-blue-50"
+                className="btn-3d-white inline-flex min-h-12 items-center gap-2 rounded-xl px-6 text-sm font-extrabold text-ink shadow-lg active:scale-95"
               >
                 Start exploring <ArrowRight size={17} />
               </Link>
               <Link
                 to="/products?sort=rating"
-                className="inline-flex min-h-11 items-center rounded-lg border border-blue-300 px-5 text-sm font-semibold text-white hover:bg-white/10"
+                className="inline-flex min-h-12 items-center rounded-xl border border-white/40 bg-white/10 backdrop-blur-md px-6 text-sm font-bold text-white shadow-tactile hover:bg-white/20 active:scale-95 transition"
               >
                 Top rated
               </Link>
             </div>
           </div>
           <div className="hidden md:block">
-            <div className="relative mx-auto max-w-sm rounded-[2rem] bg-white/10 p-4">
-              <div className="rounded-[1.5rem] bg-white p-5 text-ink shadow-float">
-                <p className="text-xs font-bold uppercase tracking-widest text-brand-600">
+            <div className="relative mx-auto max-w-sm rounded-[2rem] bg-white/10 p-4 shadow-2xl backdrop-blur-md border border-white/20">
+              <div className="rounded-[1.5rem] bg-white p-6 text-ink shadow-float border border-slate-100">
+                <p className="text-xs font-extrabold uppercase tracking-widest text-brand-600">
                   Curated today
                 </p>
-                <p className="mt-3 text-2xl font-bold">
+                <p className="mt-3 text-2xl font-extrabold tracking-tight text-ink">
                   Small stores.
                   <br />
                   Big personality.
                 </p>
                 <div className="mt-6 flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-full bg-amber-100 text-amber-700">
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-800 font-extrabold shadow-sm">
                     ✦
                   </span>
-                  <p className="text-sm text-muted">
+                  <p className="text-sm font-semibold text-slate-600">
                     Good products are closer than you think.
                   </p>
                 </div>
@@ -73,27 +75,33 @@ export default function Home() {
           </div>
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="flex gap-3 rounded-card border border-line bg-white p-4">
-            <ShieldCheck className="text-brand-600" />
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid gap-3.5 sm:grid-cols-3">
+          <div className="card-3d flex items-center gap-3.5 rounded-2card p-4 sm:p-5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 shadow-[0_2px_4px_rgba(11,181,176,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] border border-brand-200/80">
+              <ShieldCheck size={22} strokeWidth={2.2} />
+            </div>
             <div>
-              <p className="text-sm font-semibold">Trusted stores</p>
-              <p className="mt-1 text-xs text-muted">Shop with confidence</p>
+              <p className="text-sm font-extrabold text-ink">Trusted stores</p>
+              <p className="mt-0.5 text-xs font-medium text-muted">Shop with confidence</p>
             </div>
           </div>
-          <div className="flex gap-3 rounded-card border border-line bg-white p-4">
-            <Truck className="text-brand-600" />
+          <div className="card-3d flex items-center gap-3.5 rounded-2card p-4 sm:p-5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 shadow-[0_2px_4px_rgba(11,181,176,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] border border-brand-200/80">
+              <Truck size={22} strokeWidth={2.2} />
+            </div>
             <div>
-              <p className="text-sm font-semibold">Reliable delivery</p>
-              <p className="mt-1 text-xs text-muted">Clear order tracking</p>
+              <p className="text-sm font-extrabold text-ink">Reliable delivery</p>
+              <p className="mt-0.5 text-xs font-medium text-muted">Clear order tracking</p>
             </div>
           </div>
-          <div className="flex gap-3 rounded-card border border-line bg-white p-4">
-            <WalletCards className="text-brand-600" />
+          <div className="card-3d flex items-center gap-3.5 rounded-2card p-4 sm:p-5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 shadow-[0_2px_4px_rgba(11,181,176,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] border border-brand-200/80">
+              <WalletCards size={22} strokeWidth={2.2} />
+            </div>
             <div>
-              <p className="text-sm font-semibold">Simple checkout</p>
-              <p className="mt-1 text-xs text-muted">COD and online payments</p>
+              <p className="text-sm font-extrabold text-ink">Simple checkout</p>
+              <p className="mt-0.5 text-xs font-medium text-muted">COD and online payments</p>
             </div>
           </div>
         </div>
@@ -105,7 +113,7 @@ export default function Home() {
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="h-24 animate-pulse rounded-card bg-slate-200"
+                className="h-24 animate-pulse rounded-2card bg-slate-200/80"
               />
             ))}
           </div>
@@ -117,12 +125,12 @@ export default function Home() {
               <Link
                 key={category.uid}
                 to={`/c/${category.slug}`}
-                className="group rounded-card border border-line bg-white p-4 text-center transition hover:-translate-y-0.5 hover:border-brand-100 hover:shadow-card"
+                className="card-3d group rounded-2card p-4 text-center active:scale-95"
               >
-                <div className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-brand-50 text-lg text-brand-600">
+                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-b from-brand-50 to-brand-100/60 text-xl text-brand-700 shadow-[0_2px_6px_rgba(11,181,176,0.2),inset_0_1px_0_rgba(255,255,255,0.9)] border border-brand-200/80 group-hover:scale-110 transition-transform">
                   ✦
                 </div>
-                <p className="mt-3 truncate text-sm font-semibold group-hover:text-brand-600">
+                <p className="mt-3 truncate text-xs sm:text-sm font-extrabold text-ink group-hover:text-brand-600 transition-colors">
                   {category.name}
                 </p>
               </Link>
