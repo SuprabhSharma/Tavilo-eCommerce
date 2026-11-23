@@ -34,6 +34,14 @@ export default {
       fontFamily: {
         sans: ['Poppins', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
+      // Preserve the semantic utility names while reducing the visual weight
+      // one step across the storefront. This keeps hierarchy intact without
+      // the overly heavy 800-weight headings on compact screens.
+      fontWeight: {
+        semibold: '500',
+        bold: '600',
+        extrabold: '700',
+      },
     },
   },
   plugins: [],

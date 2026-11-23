@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -209,7 +210,13 @@ class ProductService:
         cursor: Optional[str] = None,
         include_total: Optional[bool] = None,
     ) -> ProductListOut:
-        stmt = select(Product).join(Vendor, Product.vendor_id == Vendor.uid).where(
+        # Keep the public-card response to a fixed number of round trips: one
+        # product query plus batched vendor/image queries, regardless of page
+        # size. Do not rely on relationship defaults for this hot path.
+        stmt = select(Product).options(
+            selectinload(Product.vendor),
+            selectinload(Product.images),
+        ).join(Vendor, Product.vendor_id == Vendor.uid).where(
             Product.status == "active", Vendor.status == "approved"
         )
         if ids:
@@ -239,7 +246,13 @@ class ProductService:
                 )
         clean_query = query.strip() if (query and query.strip()) else None
         if clean_query:
-            stmt = stmt.where(Product.title.ilike(f"%{self._escape_like(clean_query)}%", escape="!"))
+            pattern = f"%{self._escape_like(clean_query)}%"
+            # Both fields have pg_trgm indexes; include merchant-friendly slugs
+            # without falling back to a sequential scan.
+            stmt = stmt.where(
+                Product.title.ilike(pattern, escape="!")
+                | Product.slug.ilike(pattern, escape="!")
+            )
         if min_price is not None:
             stmt = stmt.where(Product.price >= min_price)
         if max_price is not None:

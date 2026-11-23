@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Filter, Search, SlidersHorizontal } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { listCategories, listProducts } from "../api/catalog";
 import ProductCard from "../components/ProductCard";
@@ -16,11 +16,11 @@ export default function ProductListing() {
   const isSearchPage = location.pathname.replace(/\/$/, "") === "/search";
   const category = params.get("category") || pathCategory || "";
   const rawQ = params.get("q") || "";
-  const q = rawQ.trim();
+  const q = rawQ.trim().replace(/\s+/g, " ");
+  const searchTooShort = isSearchPage && q.length > 0 && q.length < 2;
   const sort = params.get("sort") || "newest";
   const inStock = params.get("in_stock") === "true";
-  const [cursor, setCursor] = useState(null);
-  const [cursorHistory, setCursorHistory] = useState([]);
+  const loadMoreRef = useRef(null);
 
   const queryParams = useMemo(
     () => ({
@@ -29,32 +29,42 @@ export default function ProductListing() {
       q: q || undefined,
       sort,
       in_stock: inStock || undefined,
-      cursor: cursor || undefined,
       // Cursor pages fetch one extra row instead of executing COUNT(*).
       include_total: false,
     }),
-    [cursor, category, q, sort, inStock],
+    [category, q, sort, inStock],
   );
 
-  useEffect(() => {
-    setCursor(null);
-    setCursorHistory([]);
-  }, [category, q, sort, inStock]);
-
-  const products = useQuery({
+  const products = useInfiniteQuery({
     queryKey: ["products", queryParams],
-    queryFn: () => listProducts(queryParams),
-    placeholderData: (previous, previousQuery) => {
-      const prevQ = previousQuery?.queryKey?.[1]?.q;
-      const nextQ = queryParams.q;
-      // Do not retain stale placeholder data when search query changes (e.g. from "youtube" to "yout")
-      // This avoids false 0-results flash while loading the new query
-      if (prevQ !== nextQ) {
-        return undefined;
-      }
-      return previous;
-    },
+    initialPageParam: null,
+    queryFn: ({ pageParam, signal }) => listProducts(
+      { ...queryParams, cursor: pageParam || undefined },
+      signal,
+    ),
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.next_cursor : undefined,
+    enabled: !searchTooShort,
   });
+  const productItems = useMemo(
+    () => products.data?.pages.flatMap((page) => page.items) ?? [],
+    [products.data],
+  );
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = products;
+
+  // Fetch before the user reaches the visual end of the grid. Intersection
+  // Observer runs off the scroll hot path, unlike scroll event handlers.
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage || isFetchingNextPage) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) fetchNextPage();
+      },
+      { rootMargin: "700px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, productItems.length]);
 
   const categories = useQuery({
     queryKey: ["categories"],
@@ -67,7 +77,7 @@ export default function ProductListing() {
   const popularProducts = useQuery({
     queryKey: ["products", { page_size: 8, sort: "rating" }],
     queryFn: () => listProducts({ page_size: 8, sort: "rating" }),
-    enabled: Boolean(products.data && products.data.items.length === 0),
+    enabled: Boolean(products.data && productItems.length === 0),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -77,6 +87,15 @@ export default function ProductListing() {
     else next.delete(key);
     // Filter changes reset the local keyset cursor through the effect above.
     next.delete("page");
+
+    // /c/:category encodes a category outside the query string. Leaving that
+    // route after selecting "All categories" would otherwise reapply the
+    // route category via the `pathCategory` fallback on the next render.
+    if (key === "category" && !value && pathCategory) {
+      const search = next.toString();
+      navigate(search ? `/products?${search}` : "/products");
+      return;
+    }
     setParams(next);
   };
 
@@ -85,7 +104,7 @@ export default function ProductListing() {
   };
 
   const handleClearFilters = () => {
-    if (isSearchPage) {
+    if (isSearchPage || pathCategory) {
       navigate("/products", { replace: true });
     } else {
       setParams({});
@@ -148,11 +167,16 @@ export default function ProductListing() {
           In stock
         </Button>
       </div>
-      {products.isLoading ? (
+      {searchTooShort ? (
+        <div className="card-3d rounded-2card p-8 text-center sm:p-14 shadow-float" role="status">
+          <h2 className="text-xl font-extrabold text-ink">Keep typing to search</h2>
+          <p className="mt-2 text-sm text-muted">Enter at least two characters to search products.</p>
+        </div>
+      ) : products.isPending ? (
         <ProductGridSkeleton />
-      ) : products.isError ? (
+      ) : products.isError && productItems.length === 0 ? (
         <ErrorState onRetry={products.refetch} />
-      ) : products.data.items.length === 0 ? (
+      ) : productItems.length === 0 ? (
         <div className="space-y-10">
           <div className="card-3d rounded-2card p-8 text-center sm:p-14 shadow-float">
             <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-brand-50 text-brand-600 border border-brand-200/80 shadow-[0_2px_6px_rgba(11,181,176,0.2),inset_0_1px_0_rgba(255,255,255,0.9)]">
@@ -213,10 +237,10 @@ export default function ProductListing() {
       ) : (
         <>
           <div className="mb-4 text-sm text-muted">
-            {products.data.total == null ? "Browse more products" : `${products.data.total} products`}
+            Browse products
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.data.items.map((product, idx) => (
+            {productItems.map((product, idx) => (
               <ProductCard
                 key={product.uid}
                 product={product}
@@ -224,32 +248,20 @@ export default function ProductListing() {
               />
             ))}
           </div>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Button
-              variant="outline"
-              disabled={cursorHistory.length === 0}
-              onClick={() => {
-                const nextHistory = cursorHistory.slice(0, -1);
-                setCursorHistory(nextHistory);
-                setCursor(nextHistory.at(-1) || null);
-              }}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-muted">
-              Page {cursorHistory.length + 1}
-            </span>
-            <Button
-              variant="outline"
-              disabled={!products.data.has_more || products.isFetching}
-              onClick={() => {
-                setCursorHistory([...cursorHistory, products.data.next_cursor]);
-                setCursor(products.data.next_cursor);
-              }}
-            >
-              Next
-            </Button>
+          <div ref={loadMoreRef} className="mt-8 flex min-h-11 items-center justify-center" aria-live="polite">
+            {isFetchingNextPage ? (
+              <span className="text-sm text-muted">Loading more products…</span>
+            ) : hasNextPage ? (
+              <Button variant="outline" onClick={() => fetchNextPage()}>
+                Load more products
+              </Button>
+            ) : (
+              <span className="text-sm text-muted">You’ve reached the end</span>
+            )}
           </div>
+          {products.isError && productItems.length > 0 && (
+            <div className="mt-3 text-center"><Button variant="outline" onClick={() => fetchNextPage()}>Retry loading more</Button></div>
+          )}
         </>
       )}
     </div>

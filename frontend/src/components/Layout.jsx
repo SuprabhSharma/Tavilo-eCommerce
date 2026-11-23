@@ -28,10 +28,14 @@ import { ProductActionStateProvider } from "./ProductActionState";
 const nav = [
   { to: "/", label: "Home", icon: Home },
   { to: "/products", label: "Shop", icon: Store },
+  { to: "/stores", label: "Stores", icon: Store },
   { to: "/wishlist", label: "Wishlist", icon: Heart },
   { to: "/cart", label: "Cart", icon: ShoppingBag },
   { to: "/account", label: "Account", icon: UserRound },
 ];
+// Keep the fixed mobile bar to five primary actions; Stores stays reachable
+// through the prominent home CTA and the mobile menu.
+const mobileNav = nav.filter(({ to }) => to !== "/stores");
 
 const pageMeta = {
   "/": {
@@ -43,6 +47,10 @@ const pageMeta = {
     title: "Shop products | Tavilo",
     description:
       "Browse quality products from trusted independent stores on Tavilo.",
+  },
+  "/stores": {
+    title: "Stores on Tavilo | Tavilo",
+    description: "Browse trusted independent stores available on Tavilo.",
   },
   "/search": {
     title: "Search products | Tavilo",
@@ -79,6 +87,7 @@ export default function ShopLayout() {
     ? new URLSearchParams(location.search).get("q") || ""
     : "";
   const [query, setQuery] = useState(urlQuery);
+  const MIN_SEARCH_LENGTH = 2;
   const debounceTimerRef = useRef(null);
   const lastNavigatedQueryRef = useRef(urlQuery);
   const inputRef = useRef(null);
@@ -90,8 +99,10 @@ export default function ShopLayout() {
     queryKey: ["cart"],
     queryFn: getCart,
     enabled: isAuthenticated,
-    select: (data) =>
-      data?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0,
+    // Header/navigation badges represent distinct products, not units. Line
+    // quantities remain visible only in cart and checkout where they can be
+    // acted on.
+    select: (data) => data?.items?.length || 0,
   });
   const { data: authWishlistCount = 0 } = useQuery({
     queryKey: ["wishlist"],
@@ -107,25 +118,22 @@ export default function ShopLayout() {
     updatePageMeta(location.pathname);
   }, [location.pathname]);
 
-  // Synchronize header search bar with active route & query parameters
+  // Only URL navigation, not keystrokes, may replace the controlled input.
+  // Depending on `query` here cleared text immediately on Home/detail/cart.
   useEffect(() => {
     const isSearch = location.pathname === "/search";
-    const urlQ = isSearch
+    const nextQuery = isSearch
       ? new URLSearchParams(location.search).get("q") || ""
       : "";
 
-    // Sync only when URL change originated externally (back/forward browser navigation, page reload, or link clicks)
-    if (urlQ !== lastNavigatedQueryRef.current) {
-      lastNavigatedQueryRef.current = urlQ;
-      setQuery(urlQ);
-    } else if (!isSearch && location.pathname !== "/products") {
-      // When navigating away from catalog pages to another page (e.g. /cart), clear search input
-      if (query) {
-        setQuery("");
-        lastNavigatedQueryRef.current = "";
-      }
+    if (isSearch) {
+      lastNavigatedQueryRef.current = nextQuery;
+      setQuery(nextQuery);
+    } else if (location.pathname !== "/products") {
+      lastNavigatedQueryRef.current = "";
+      setQuery("");
     }
-  }, [location.pathname, location.search, query]);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     return () => {
@@ -144,7 +152,7 @@ export default function ShopLayout() {
       debounceTimerRef.current = null;
     }
 
-    const trimmed = nextVal.trim();
+    const trimmed = nextVal.trim().replace(/\s+/g, " ");
     const isSearchRoute = location.pathname === "/search";
     const isProductsRoute = location.pathname === "/products";
 
@@ -162,7 +170,7 @@ export default function ShopLayout() {
         debounceTimerRef.current = setTimeout(() => {
           lastNavigatedQueryRef.current = trimmed;
           navigate(`/search?q=${encodeURIComponent(trimmed)}`, { replace: true });
-        }, 200);
+        }, 350);
       }
     } else {
       // User is on a non-search page (e.g. Home, Product Detail, Cart).
@@ -171,7 +179,7 @@ export default function ShopLayout() {
         debounceTimerRef.current = setTimeout(() => {
           lastNavigatedQueryRef.current = trimmed;
           navigate(`/search?q=${encodeURIComponent(trimmed)}`);
-        }, 300);
+        }, 350);
       }
     }
   };
@@ -198,7 +206,7 @@ export default function ShopLayout() {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-    const trimmed = (query || "").trim();
+    const trimmed = (query || "").trim().replace(/\s+/g, " ");
     if (trimmed) {
       lastNavigatedQueryRef.current = trimmed;
       if (location.pathname === "/search") {
@@ -222,7 +230,7 @@ export default function ShopLayout() {
     navigate("/");
   };
   const guestCount = useGuestStore((state) =>
-    state.cart.items.reduce((sum, item) => sum + item.quantity, 0),
+    state.cart.items.length,
   );
   const count = isAuthenticated ? authCartCount : guestCount;
   const guestWishlistCount = useGuestStore((state) => state.wishlist.items.length);
@@ -268,7 +276,9 @@ export default function ShopLayout() {
                   handleClear();
                 }
               }}
-              placeholder="Search products..."
+              placeholder="Search products, brands and categories"
+              enterKeyHint="search"
+              minLength={MIN_SEARCH_LENGTH}
               autoComplete="off"
               spellCheck="false"
               className="h-10 w-full min-w-0 bg-transparent px-2.5 text-xs sm:text-sm font-medium text-ink outline-none placeholder:text-slate-400"
@@ -355,6 +365,9 @@ export default function ShopLayout() {
             </Link>
             <Link to="/products?sort=newest" className="hover:text-brand-600 transition-colors">
               New arrivals
+            </Link>
+            <Link to="/stores" className="hover:text-brand-600 transition-colors">
+              Stores
             </Link>
           </div>
         </div>
@@ -509,7 +522,7 @@ export default function ShopLayout() {
         </div>
       </footer>
       <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4.25rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-slate-200/90 bg-white/95 backdrop-blur-lg px-2 pt-2 shadow-[0_-8px_24px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] md:hidden">
-        {nav.map(({ to, label, icon: Icon }) => (
+        {mobileNav.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}

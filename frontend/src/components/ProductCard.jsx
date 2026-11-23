@@ -169,7 +169,7 @@ function ProductCard({ product, priority = false }) {
   const srcSet = imageSrcSet(rawSrc);
 
   return (
-    <article className="group flex min-w-0 flex-col overflow-hidden rounded-2card border border-slate-200/90 bg-white p-2.5 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-card-hover sm:p-3 relative">
+    <article className="catalog-card group flex min-w-0 flex-col overflow-hidden rounded-2card border border-slate-200/90 bg-white p-2.5 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-card-hover sm:p-3 relative">
       <div className="relative block aspect-square overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-900/5">
         <Link
           to={`/p/${product.slug}`}
@@ -210,9 +210,19 @@ function ProductCard({ product, priority = false }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col px-1 pt-2">
-        <p className="mb-1 truncate text-xs text-muted">
-          {product.vendor_name || product.vendor?.store_name || "Tavilo store"}
-        </p>
+        {product.vendor?.slug ? (
+          <Link
+            to={`/store/${product.vendor.slug}`}
+            className="mb-1 truncate text-xs font-medium text-muted transition-colors hover:text-brand-600 hover:underline"
+            aria-label={`Shop ${product.vendor.store_name}`}
+          >
+            {product.vendor.store_name}
+          </Link>
+        ) : (
+          <p className="mb-1 truncate text-xs text-muted">
+            {product.vendor_name || "Tavilo store"}
+          </p>
+        )}
         <Link
           to={`/p/${product.slug}`}
           className="line-clamp-2 text-sm font-semibold leading-snug text-ink hover:text-brand-600 transition-colors"

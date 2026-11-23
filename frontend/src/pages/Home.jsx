@@ -49,6 +49,12 @@ export default function Home() {
               >
                 Top rated
               </Link>
+              <Link
+                to="/stores"
+                className="inline-flex min-h-12 items-center rounded-xl border border-white/40 bg-white/10 backdrop-blur-md px-6 text-sm font-bold text-white shadow-tactile hover:bg-white/20 active:scale-95 transition"
+              >
+                Shop by store
+              </Link>
             </div>
           </div>
           <div className="hidden md:block">

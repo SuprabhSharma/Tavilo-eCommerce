@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.audit import record_audit
@@ -9,7 +9,7 @@ from src.db.main import get_session
 from src.db.models import User
 from src.errors import VendorNotFound
 
-from .schemas import VendorApply, VendorOut, VendorUpdate
+from .schemas import VendorApply, VendorListOut, VendorOut, VendorUpdate
 from .service import VendorService
 
 vendor_router = APIRouter()
@@ -114,6 +114,23 @@ async def suspend_vendor(
 
 
 # ── Public ────────────────────────────────────────────────────────────────────
+
+
+# List route must stay before the parameterized storefront route.
+@vendor_router.get("", response_model=VendorListOut)
+async def list_vendor_storefronts(
+    response: Response,
+    limit: int = Query(48, ge=1, le=100),
+    q: str | None = Query(None, min_length=2, max_length=100),
+    cursor: str | None = Query(None, max_length=512),
+    session: AsyncSession = Depends(get_session),
+):
+    """Fast, public storefront directory search for customer discovery."""
+    stores = await service.list_approved(session, limit, q, cursor)
+    # Directory search is public and changes infrequently; CDN/browser
+    # revalidation absorbs repeated queries without serving stale data.
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+    return stores
 
 
 # Keep the parameterized storefront route after the fixed management routes.

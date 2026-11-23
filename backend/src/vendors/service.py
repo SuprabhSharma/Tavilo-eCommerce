@@ -1,16 +1,69 @@
+import base64
+import binascii
+import hashlib
+import json
 import uuid
 from typing import Optional
 
 from sqlmodel import select
+from fastapi import HTTPException
+from sqlalchemy import and_, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.models import User, Vendor
 from src.errors import InsufficientPermission, UserNotFound
 
-from .schemas import VendorApply, VendorUpdate
+from .schemas import VendorApply, VendorListOut, VendorUpdate
 
 
 class VendorService:
+    _CURSOR_VERSION = 1
+
+    @staticmethod
+    def _cursor_fingerprint(query: str) -> str:
+        return hashlib.sha256(query.encode("utf-8")).hexdigest()[:16]
+
+    @classmethod
+    def _encode_cursor(cls, vendor: Vendor, query: str) -> str:
+        payload = {"v": cls._CURSOR_VERSION, "f": cls._cursor_fingerprint(query), "p": [vendor.store_name, str(vendor.uid)]}
+        return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
+
+    @classmethod
+    def _decode_cursor(cls, cursor: str, query: str) -> tuple[str, uuid.UUID]:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+            position = payload.get("p")
+            if payload.get("v") != cls._CURSOR_VERSION or payload.get("f") != cls._cursor_fingerprint(query) or not isinstance(position, list) or len(position) != 2 or not isinstance(position[0], str):
+                raise ValueError
+            return position[0], uuid.UUID(position[1])
+        except (AttributeError, TypeError, ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+            raise HTTPException(status_code=400, detail="Invalid or expired pagination cursor.") from None
+
+    async def list_approved(
+        self, session: AsyncSession, limit: int, query: str | None = None, cursor: str | None = None
+    ) -> VendorListOut:
+        """Public storefront directory; never exposes pending or suspended stores."""
+        statement = select(Vendor).where(Vendor.status == "approved")
+        clean_query = query.strip() if query else ""
+        if clean_query:
+            # Escape LIKE wildcards so a user query is always interpreted as
+            # text, while PostgreSQL's pg_trgm indexes keep substring search fast.
+            escaped = clean_query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            pattern = f"%{escaped}%"
+            statement = statement.where(
+                Vendor.store_name.ilike(pattern, escape="!")
+                | Vendor.slug.ilike(pattern, escape="!")
+            )
+        if cursor:
+            name, uid = self._decode_cursor(cursor, clean_query)
+            statement = statement.where(or_(Vendor.store_name > name, and_(Vendor.store_name == name, Vendor.uid > uid)))
+        result = await session.exec(statement.order_by(Vendor.store_name.asc(), Vendor.uid.asc()).limit(limit + 1))
+        rows = list(result.all())
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return VendorListOut(items=rows, has_more=has_more, next_cursor=self._encode_cursor(rows[-1], clean_query) if has_more else None)
+
     async def get_by_slug(self, slug: str, session: AsyncSession) -> Optional[Vendor]:
         result = await session.exec(select(Vendor).where(Vendor.slug == slug.strip().lower(), Vendor.status == "approved"))
         return result.first()

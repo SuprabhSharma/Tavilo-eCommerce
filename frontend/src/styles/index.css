@@ -7,10 +7,10 @@
  *  - `preconnect` hints (added to index.html) allow the browser to open the
  *    TLS tunnel to fonts.googleapis.com early, cutting TTFB for the font CSS.
  *
- * We import only the weights actually used (400, 500, 600, 700, 800) and use
+ * We import only the weights actually used (400, 500, 600, 700) and use
  * the `&display=swap` parameter Google Fonts supports for `font-display:swap`.
  */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -110,3 +110,9 @@ img { max-width: 100%; display: block; }
 
 /* Reduce layout shift for lazy images by reserving space. */
 img[loading="lazy"] { content-visibility: auto; }
+
+/* Do not paint or style card internals that are well outside the viewport.
+   This matters once cursor pages have been appended during a long browse; the
+   estimated block size keeps the scrollbar stable while work is deferred. */
+.catalog-card { content-visibility: auto; contain-intrinsic-size: auto 430px; }
+.directory-card { content-visibility: auto; contain-intrinsic-size: auto 176px; }

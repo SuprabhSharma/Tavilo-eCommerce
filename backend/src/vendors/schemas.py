@@ -27,3 +27,11 @@ class VendorOut(BaseModel):
     logo_url: str | None = None
     status: str
     created_at: datetime | None = None
+
+
+class VendorListOut(BaseModel):
+    """Keyset-paginated public directory response."""
+
+    items: list[VendorOut]
+    has_more: bool = False
+    next_cursor: str | None = None

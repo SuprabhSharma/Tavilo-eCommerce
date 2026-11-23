@@ -176,7 +176,7 @@ export const useGuestStore = create((set, get) => ({
   },
 
   guestCartCount() {
-    return get().cart.items.reduce((s, i) => s + i.quantity, 0);
+    return get().cart.items.length;
   },
 
   clearGuestCart() {
@@ -243,7 +243,7 @@ if (typeof window !== "undefined") {
 
 // ── Selectors (memoised externally via zustand/shallow where needed) ─────────
 export const selectGuestCartCount = (state) =>
-  state.cart.items.reduce((s, i) => s + i.quantity, 0);
+  state.cart.items.length;
 export const selectGuestCartId = (state) => state.cart.guestCartId;
 export const selectGuestCartItems = (state) => state.cart.items;
 export const selectGuestWishlistItems = (state) => state.wishlist.items;
