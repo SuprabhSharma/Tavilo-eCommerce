@@ -79,10 +79,11 @@ class ProductBase(BaseModel):
     description: str | None = None
     price: Decimal = Field(..., gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
-    stock: int = Field(..., gt=0)
+    stock: int = Field(..., gt=0, le=2_147_483_647)
     # Flipkart/Amazon-style per-order cap (NULL = only real stock limits qty).
-    # Must be >= 1 when provided.  Validated here AND enforced by DB CHECK.
-    max_order_qty: int | None = Field(default=None, ge=1)
+    # Must be >= 1 (and fit in PostgreSQL INTEGER) when provided.
+    # Validated here AND enforced by DB CHECK.
+    max_order_qty: int | None = Field(default=None, ge=1, le=2_147_483_647)
     sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     attributes: dict | None = None
@@ -137,9 +138,9 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     price: Decimal | None = Field(default=None, gt=0)
     mrp: Decimal | None = Field(default=None, ge=0)
-    stock: int | None = Field(default=None, ge=0)
+    stock: int | None = Field(default=None, ge=0, le=2_147_483_647)
     # Allow vendors to change or clear the per-order cap (set to null to remove cap).
-    max_order_qty: int | None = Field(default=None, ge=1)
+    max_order_qty: int | None = Field(default=None, ge=1, le=2_147_483_647)
     sku: str | None = Field(default=None, max_length=80)
     category_id: uuid.UUID | None = None
     status: str | None = None

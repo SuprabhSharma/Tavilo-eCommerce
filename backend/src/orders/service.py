@@ -178,8 +178,14 @@ class OrderService:
             if not pre_vendor or pre_vendor.status != "approved":
                 # Vendor not approved -- reject before any stock is decremented.
                 raise HTTPException(status_code=400, detail=f"Product unavailable: {pre_product.title}")
+            if pre_product.stock <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for: {pre_product.title} (requested: {item.quantity}, available: {pre_product.stock})",
+                )
             if (
-                pre_product.max_order_qty is not None
+                pre_product.stock >= item.quantity
+                and pre_product.max_order_qty is not None
                 and item.quantity > pre_product.max_order_qty
             ):
                 raise HTTPException(
@@ -207,7 +213,8 @@ class OrderService:
                     p_name = p_check.title if p_check else str(item.product_id)
                     raise HTTPException(status_code=400, detail=f"Product unavailable: {p_name}")
                 if (
-                    p_check.max_order_qty is not None
+                    p_check.stock >= item.quantity
+                    and p_check.max_order_qty is not None
                     and item.quantity > p_check.max_order_qty
                 ):
                     raise HTTPException(

@@ -96,7 +96,11 @@ async def list_products(
         include_total=include_total,
     )
     if response is not None:
-        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+        # Live cart/wishlist hydration (`ids=...`) must never serve stale stock/cap.
+        if ids:
+            response.headers["Cache-Control"] = "no-store"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=10, stale-while-revalidate=30"
     return result
 
 
@@ -110,7 +114,8 @@ async def get_product(
     product = await service.get_by_slug(slug, session)
     if not product:
         raise ProductNotFound()
-    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    # Keep product detail revalidated immediately so vendor stock/cap edits sync fast.
+    response.headers["Cache-Control"] = "no-cache"
     return product
 
 

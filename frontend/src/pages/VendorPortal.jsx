@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import {
   keepPreviousData,
@@ -749,12 +749,20 @@ function VendorProducts({ profile }) {
     queryFn: listCategories,
     enabled: profile.data?.status === "approved",
   });
+  const invalidateProductCaches = () => {
+    queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+    queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["products"] });
+    queryClient.invalidateQueries({ queryKey: ["product"] });
+    queryClient.invalidateQueries({ queryKey: ["cart"] });
+    queryClient.invalidateQueries({ queryKey: ["direct-buy-product"] });
+    queryClient.invalidateQueries({ queryKey: ["guest-cart-products"] });
+    queryClient.invalidateQueries({ queryKey: ["wishlist"] });
+    queryClient.invalidateQueries({ queryKey: ["guest-wishlist-products"] });
+  };
   const remove = useMutation({
     mutationFn: deleteVendorProduct,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
-      queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
-    },
+    onSuccess: invalidateProductCaches,
     onError: (e) => setError(getErrorMessage(e)),
   });
   const items = useMemo(
@@ -895,6 +903,14 @@ function VendorProducts({ profile }) {
                       }`}
                     >
                       {product.stock}
+                      {product.max_order_qty != null && (
+                        <span
+                          title={`Per-order limit: ${product.max_order_qty}`}
+                          className="ml-1.5 inline-block rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 border border-slate-200"
+                        >
+                          /{product.max_order_qty}
+                        </span>
+                      )}
                     </span>
                     <Badge
                       tone={
@@ -953,13 +969,13 @@ function VendorProducts({ profile }) {
       )}
       {editing && (
         <ProductEditor
+          key={editing.uid || "new"}
           product={editing.uid ? editing : null}
           categories={categories.data || []}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
-            queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
-            queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
+            invalidateProductCaches();
           }}
         />
       )}
@@ -1435,14 +1451,27 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
 
   const submit = (event) => {
     event.preventDefault();
+    if (mutation.isPending || isUploading) return;
     setError("");
     if (!form.title.trim() || !form.slug.trim() || !form.price)
       return setError("Title, slug and price are required.");
-    if (
-      !product &&
-      (!Number.isInteger(Number(form.stock)) || Number(form.stock) <= 0)
-    )
+
+    const INT32_MAX = 2147483647;
+    const stockRaw = String(form.stock ?? "").trim();
+    if (!/^\d+$/.test(stockRaw)) {
+      return setError("Stock quantity must be a whole number.");
+    }
+    const parsedStock = Number(stockRaw);
+    if (!Number.isInteger(parsedStock) || parsedStock > INT32_MAX) {
+      return setError("Stock quantity must be a valid whole number.");
+    }
+    if (!product && parsedStock <= 0) {
       return setError("Stock quantity must be at least 1.");
+    }
+    if (product && parsedStock < 0) {
+      return setError("Stock quantity cannot be negative.");
+    }
+
     const sellingPrice = Number(form.price);
     const maximumRetailPrice = form.mrp === "" ? null : Number(form.mrp);
     if (!Number.isFinite(sellingPrice) || sellingPrice <= 0)
@@ -1453,6 +1482,25 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
     )
       return setError("MRP must be greater than or equal to the selling price.");
 
+    // max_order_qty: blank → null (remove cap), positive integer → set cap.
+    // Strict digit-only check prevents silent truncation of floats/scientific notation.
+    let maxOrderQty = null;
+    const rawCap = String(form.max_order_qty ?? "").trim();
+    if (rawCap !== "") {
+      if (!/^\d+$/.test(rawCap)) {
+        return setError(
+          "Per-order limit must be a whole number of 1 or more (or leave blank for no limit).",
+        );
+      }
+      const parsedCap = Number(rawCap);
+      if (!Number.isInteger(parsedCap) || parsedCap < 1 || parsedCap > INT32_MAX) {
+        return setError(
+          "Per-order limit must be between 1 and 2,147,483,647 (or leave blank for no limit).",
+        );
+      }
+      maxOrderQty = parsedCap;
+    }
+
     const completedUrls = imageItems
       .filter((it) => it.status === "done" && it.url)
       .map((it) => it.url);
@@ -1460,14 +1508,27 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
       return setError("Add at least one product photo before publishing.");
     }
 
-    mutation.mutate({
+    const payload = {
       ...form,
       price: Number(form.price),
       mrp: form.mrp ? Number(form.mrp) : null,
-      stock: Number(form.stock || 0),
+      // Always include max_order_qty in the payload so the backend can
+      // distinguish "not sent" (field absent) from "clear cap" (null).
+      // Both create and update schemas accept int | null.
+      max_order_qty: maxOrderQty,
       category_id: form.category_id || null,
       image_urls: completedUrls,
-    });
+    };
+
+    // On edits, omit stock if unchanged so updating max_order_qty or price never
+    // overwrites concurrent customer checkout stock decrements.
+    if (!product || parsedStock !== Number(product.stock ?? 0)) {
+      payload.stock = parsedStock;
+    } else {
+      delete payload.stock;
+    }
+
+    mutation.mutate(payload);
   };
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4">
@@ -1547,15 +1608,36 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
           <Input
             label="Stock quantity"
             type="number"
-            min="1"
+            min={product ? "0" : "1"}
+            max="2147483647"
+            step="1"
             value={form.stock}
-            onChange={(e) =>
-              update(
-                "stock",
-                e.target.value === "" ? "" : Number.parseInt(e.target.value, 10),
-              )
-            }
+            onChange={(e) => update("stock", e.target.value)}
           />
+          {/* ── Per-order quantity cap (Flipkart / Amazon style) ─────────────
+               Blank  = no cap (default).
+               Number = max units one customer can buy per order, enforced by
+               the backend at cart-add, guest-merge AND checkout independently
+               of real stock.  The badge on the product page reflects this.
+          ──────────────────────────────────────────────────────────────── */}
+          <div className="space-y-1.5">
+            <Input
+              label="Per-order limit (optional)"
+              type="number"
+              min="1"
+              max="2147483647"
+              step="1"
+              value={form.max_order_qty}
+              placeholder="e.g. 5  — leave blank for no limit"
+              onChange={(e) => update("max_order_qty", e.target.value)}
+            />
+            <p className="text-xs text-muted">
+              {/^\d+$/.test(String(form.max_order_qty ?? "").trim()) &&
+              Number(String(form.max_order_qty).trim()) >= 1
+                ? `Customers will see "Max ${Number(String(form.max_order_qty).trim())} per order" on the product page`
+                : "Blank = unlimited quantity up to available stock"}
+            </p>
+          </div>
           <Input
             label="SKU (optional)"
             value={form.sku}
@@ -1864,6 +1946,9 @@ function blankProduct() {
     price: "",
     mrp: "",
     stock: 0,
+    // "" = no cap (blank input), positive integer = vendor cap.
+    // Stored as string in the form; converted to int | null on submit.
+    max_order_qty: "",
     sku: "",
     category_id: "",
     status: "active",
@@ -1877,6 +1962,8 @@ function toForm(product) {
     price: product.price || "",
     mrp: product.mrp || "",
     stock: product.stock ?? 0,
+    // Show existing cap or blank (no cap). Blank = clear the cap on save.
+    max_order_qty: product.max_order_qty != null ? String(product.max_order_qty) : "",
     sku: product.sku || "",
     category_id: product.category?.uid || "",
     status: product.status || "active",

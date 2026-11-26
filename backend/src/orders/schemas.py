@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class DirectCheckoutItem(BaseModel):
     product_id: uuid.UUID
-    quantity: int = Field(1, ge=1)
+    quantity: int = Field(1, ge=1, le=2_147_483_647)
 
 
 class CheckoutRequest(BaseModel):

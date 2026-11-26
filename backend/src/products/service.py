@@ -1,11 +1,11 @@
-import base64
+﻿import base64
 import binascii
 import hashlib
 import json
 import math
 import uuid
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -407,6 +407,31 @@ class ProductService:
         return self._with_available_images(product)
 
     async def update(self, product: Product, data: ProductUpdate, session: AsyncSession) -> Product:
+        # Acquire pessimistic row-level lock on the Product row first so concurrent
+        # vendor updates (and concurrent cart mutations/checkouts) serialize cleanly
+        # without lost updates or stale price/MRP/cap invariant checks.
+        locked_res = await session.exec(
+            select(Product)
+            .where(Product.uid == product.uid)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        locked_product = locked_res.first()
+        if not locked_product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        product = locked_product
+
+        if "category_id" in data.model_fields_set and data.category_id is not None:
+            category_result = await session.exec(
+                select(Category).where(Category.uid == data.category_id)
+            )
+            if category_result.first() is None:
+                raise HTTPException(status_code=422, detail="Selected category does not exist.")
+
+        if "status" in data.model_fields_set and data.status is not None:
+            if data.status not in {"draft", "active", "archived"}:
+                raise HTTPException(status_code=422, detail="Invalid product status.")
+
         next_price = data.price if data.price is not None else product.price
         next_mrp = data.mrp if 'mrp' in data.model_fields_set else product.mrp
         if next_mrp is not None and next_mrp < next_price:
@@ -416,18 +441,51 @@ class ProductService:
             )
         if data.mrp is None and 'mrp' in data.model_fields_set:
             product.mrp = None
-        payload = data.model_dump(exclude_none=True, exclude={"image_urls"})
+        if "category_id" in data.model_fields_set and data.category_id is None:
+            product.category_id = None
+        # Production fix: same pattern as mrp — when vendor explicitly sends
+        # max_order_qty=null it removes the per-order cap. Not sending the field
+        # at all leaves the existing value untouched.
+        if data.max_order_qty is None and 'max_order_qty' in data.model_fields_set:
+            product.max_order_qty = None
+
+        # Dump all scalar non-null fields; exclude nullable-clear fields (mrp,
+        # max_order_qty, category_id) already handled above, plus image_urls deferred below.
+        payload = data.model_dump(
+            exclude_none=True,
+            exclude={"image_urls", "mrp", "max_order_qty", "category_id"},
+        )
         for k, v in payload.items():
             setattr(product, k, v)
+
+        if "category_id" in data.model_fields_set and data.category_id is not None:
+            product.category_id = data.category_id
+
+        # Apply positive max_order_qty if explicitly provided
+        if data.max_order_qty is not None and 'max_order_qty' in data.model_fields_set:
+            product.max_order_qty = data.max_order_qty
+
         if data.stock is not None:
             product.stock = data.stock
+        product.updated_at = datetime.now(timezone.utc)
         if data.image_urls is not None:
             try:
                 await self._attach_images(product, data.image_urls, product.vendor_id, session)
             except HTTPException:
                 await session.rollback()
                 raise
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            constraint = str(getattr(exc.orig, "diag", None) or exc.orig).lower()
+            if "sku" in constraint:
+                detail = "A product with this SKU already exists."
+            elif "max_order_qty" in constraint:
+                detail = "Per-order limit must be at least 1."
+            else:
+                detail = "Product could not be updated because it conflicts with existing data."
+            raise HTTPException(status_code=409, detail=detail) from exc
         await session.refresh(product)
         return self._with_available_images(product)
 

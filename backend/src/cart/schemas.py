@@ -8,17 +8,17 @@ from src.products.schemas import ProductSummaryOut
 
 class CartItemAdd(BaseModel):
     product_id: uuid.UUID
-    quantity: int = Field(1, ge=1)
+    quantity: int = Field(1, ge=1, le=2_147_483_647)
 
 
 class CartItemUpsert(BaseModel):
     """Used by Buy Now — sets quantity absolutely, never accumulates."""
     product_id: uuid.UUID
-    quantity: int = Field(1, ge=1)
+    quantity: int = Field(1, ge=1, le=2_147_483_647)
 
 
 class CartItemUpdate(BaseModel):
-    quantity: int = Field(..., ge=1)
+    quantity: int = Field(..., ge=1, le=2_147_483_647)
 
 
 class CartItemOut(BaseModel):

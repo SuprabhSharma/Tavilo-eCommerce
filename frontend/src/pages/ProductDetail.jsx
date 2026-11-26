@@ -41,10 +41,10 @@ export default function ProductDetail() {
   const removeFromGuestCart = useGuestStore((state) => state.removeFromGuestCart);
   const addToGuestWishlist = useGuestStore((state) => state.addToGuestWishlist);
   const removeFromGuestWishlist = useGuestStore((state) => state.removeFromGuestWishlist);
-  const productQuery = useQuery({ queryKey: ["product", slug], queryFn: () => getProduct(slug) });
+  const productQuery = useQuery({ queryKey: ["product", slug], queryFn: () => getProduct(slug), staleTime: 0, refetchOnWindowFocus: true });
   const product = productQuery.data;
   const wishlistQuery = useQuery({ queryKey: ["wishlist"], queryFn: getWishlist, enabled: isLoggedIn });
-  const cartQuery = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isLoggedIn });
+  const cartQuery = useQuery({ queryKey: ["cart"], queryFn: getCart, enabled: isLoggedIn, staleTime: 0, refetchOnWindowFocus: true });
   const related = useQuery({
     queryKey: ["products", { vendor: product?.vendor?.slug, page_size: 4 }],
     queryFn: () => listProducts({ vendor: product.vendor.slug, page_size: 4 }),

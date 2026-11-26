@@ -145,7 +145,7 @@ function ProductCard({ product, priority = false }) {
       e?.stopPropagation();
       setMessage("");
       if (inCart) { navigate("/cart"); return; }
-      if (!product.is_available) return;
+      if (!product.is_available || (typeof product.available_stock === "number" && product.available_stock <= 0)) return;
       if (actionInFlight.current) return;
       if (!isLoggedIn) {
         addToGuestCart(product.uid, 1);
@@ -155,7 +155,7 @@ function ProductCard({ product, priority = false }) {
       actionInFlight.current = true;
       mutateCart();
     },
-    [inCart, isLoggedIn, navigate, addToGuestCart, mutateCart, product.uid, product.is_available],
+    [inCart, isLoggedIn, navigate, addToGuestCart, mutateCart, product.uid, product.is_available, product.available_stock],
   );
 
   const toggleWishlist = useCallback(

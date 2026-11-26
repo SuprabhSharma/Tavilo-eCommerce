@@ -159,14 +159,17 @@ async def create_product(
     price: str = "10.00",
     stock: int = 10,
     product_status: str = "active",
+    max_order_qty: int | None = None,
+    slug: str | None = None,
 ) -> Product:
     suffix = uuid.uuid4().hex[:10]
     product = Product(
         vendor_id=vendor.uid,
         title=title,
-        slug=f"product-{suffix}",
+        slug=slug or f"product-{suffix}",
         price=price,
         stock=stock,
+        max_order_qty=max_order_qty,
         status=product_status,
     )
     session.add(product)
