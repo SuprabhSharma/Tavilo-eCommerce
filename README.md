@@ -2,7 +2,6 @@
 <div align="center">
 <br/>
 <img src="frontend/public/tavilo-logo.webp" alt="Tavilo logo" height="64"/>
-
 <br/>
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white "Python 3.12")](https://www.python.org/)
@@ -955,7 +954,7 @@ What is **not** here yet — and what has recently shipped:
 ```mermaid
 flowchart LR
     User["🌐 Browser"] -->|HTTPS| CF["☁️ Cloudflare\ntavilo.website"]
-    CF -->|HTTP :80| LS["🖥️ AWS Lightsail\n13.201.122.25"]
+    CF -->|HTTP :80| LS["🖥️ AWS Lightsail\nXX.XXX.XXX.XX"]
 
     subgraph LS["AWS Lightsail — Docker Bridge Network"]
         FE["frontend\nnginx:1.27-alpine\n:80"]
@@ -1019,7 +1018,7 @@ docker compose up
 ### Step 1 — SSH into the server
 
 ```bash
-ssh -i ~/.ssh/lightsail-key.pem ubuntu@13.201.122.25
+ssh -i ~/.ssh/lightsail-key.pem ubuntu@XX.XXX.XXX.XX
 ```
 
 ### Step 2 — Install Docker & Docker Compose
@@ -1106,8 +1105,8 @@ curl http://localhost/api/v1/...    # your API endpoints
 
 | Type | Name | Content | Proxy |
 |------|------|---------|-------|
-| A | `@` (tavilo.website) | `13.201.122.25` | ✅ ON |
-| A | `www` | `13.201.122.25` | ✅ ON |
+| A | `@` (tavilo.website) | `XX.XXX.XXX.XX` | ✅ ON |
+| A | `www` | `XX.XXX.XXX.XX` | ✅ ON |
 
 ### SSL/TLS Settings
 
@@ -1159,7 +1158,7 @@ jobs:
       - name: SSH Deploy
         uses: appleboy/ssh-action@v1
         with:
-          host: 13.201.122.25
+          host: XX.XXX.XXX.XX
           username: ubuntu
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
           script: /opt/tavilo/deploy.sh
