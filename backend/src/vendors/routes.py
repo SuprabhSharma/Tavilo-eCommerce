@@ -9,7 +9,13 @@ from src.db.main import get_session
 from src.db.models import User
 from src.errors import VendorNotFound
 
-from .schemas import VendorApply, VendorListOut, VendorOut, VendorUpdate
+from .schemas import (
+    VendorApply,
+    VendorListOut,
+    VendorOut,
+    VendorPendingPageOut,
+    VendorUpdate,
+)
 from .service import VendorService
 
 vendor_router = APIRouter()
@@ -71,10 +77,27 @@ async def update_my_profile(
 
 
 @vendor_router.get(
+    "/admin/pending/page",
+    response_model=VendorPendingPageOut,
+    dependencies=[admin_only],
+)
+async def list_pending_vendors_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+):
+    return await service.get_pending_page(session, page=page, page_size=page_size)
+
+
+@vendor_router.get(
     "/admin/pending", response_model=list[VendorOut], dependencies=[admin_only]
 )
-async def list_pending_vendors(session: AsyncSession = Depends(get_session)):
-    return await service.get_all_pending(session)
+async def list_pending_vendors(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+):
+    return await service.get_all_pending(session, limit=limit, offset=offset)
 
 
 @vendor_router.patch("/admin/{uid}/approve", response_model=VendorOut)

@@ -10,7 +10,7 @@ import { useAuthStore } from "../store/authStore";
 import { useGuestStore } from "../store/guestStore";
 import { getErrorMessage } from "../lib/errors";
 import { Rating } from "./ui";
-import { useProductActionState } from "./ProductActionState";
+import { useProductCardActionFlags } from "./ProductActionState";
 
 // ── Module-level stable selectors ─────────────────────────────────────────────
 //
@@ -28,22 +28,33 @@ import { useProductActionState } from "./ProductActionState";
 
 const selectAccessToken           = (s) => s.accessToken;
 
-// Boolean primitives — always stable for ===.
-// These are closures created at module init time, NOT inside the component.
-// Using a Map keyed by productId so each card gets its own cached selector
-// without re-creating closures on every render.
+// Bounded selector caches (FIFO eviction at 500 entries) so long infinite-scroll
+// browsing sessions never accumulate unbounded closures in memory.
+const MAX_SEL_CACHE = 500;
 const cartSelCache  = new Map();
 const wishSelCache  = new Map();
 
 function getCartSel(uid) {
-  if (!cartSelCache.has(uid))
-    cartSelCache.set(uid, (s) => s.cart.items.some((i) => i.productId === uid));
-  return cartSelCache.get(uid);
+  let sel = cartSelCache.get(uid);
+  if (!sel) {
+    if (cartSelCache.size >= MAX_SEL_CACHE) {
+      cartSelCache.delete(cartSelCache.keys().next().value);
+    }
+    sel = (s) => s.cart.items.some((i) => i.productId === uid);
+    cartSelCache.set(uid, sel);
+  }
+  return sel;
 }
 function getWishSel(uid) {
-  if (!wishSelCache.has(uid))
-    wishSelCache.set(uid, (s) => s.wishlist.items.some((i) => i.productId === uid));
-  return wishSelCache.get(uid);
+  let sel = wishSelCache.get(uid);
+  if (!sel) {
+    if (wishSelCache.size >= MAX_SEL_CACHE) {
+      wishSelCache.delete(wishSelCache.keys().next().value);
+    }
+    sel = (s) => s.wishlist.items.some((i) => i.productId === uid);
+    wishSelCache.set(uid, sel);
+  }
+  return sel;
 }
 
 // Individual action selectors — return the same function reference every time
@@ -60,7 +71,7 @@ function ProductCard({ product, priority = false }) {
   const isLoggedIn     = Boolean(useAuthStore(selectAccessToken));
   const [message, setMessage] = useState("");
   const queryClient = useQueryClient();
-  const { cartIds, wishlistIds } = useProductActionState();
+  const { inCart: authInCart, saved: authSaved } = useProductCardActionFlags(product.uid);
 
   // ── Guest Store — one hook per scalar value ───────────────────────────────
   const isGuestInCart          = useGuestStore(getCartSel(product.uid));
@@ -70,8 +81,8 @@ function ProductCard({ product, priority = false }) {
   const removeFromGuestWishlist = useGuestStore(selRemoveFromGuestWishlist);
 
   // ── Derived flags ─────────────────────────────────────────────────────────
-  const saved  = isLoggedIn ? wishlistIds.has(product.uid) : isGuestSaved;
-  const inCart = isLoggedIn ? cartIds.has(product.uid)     : isGuestInCart;
+  const saved  = isLoggedIn ? authSaved  : isGuestSaved;
+  const inCart = isLoggedIn ? authInCart : isGuestInCart;
 
   // ── Cart mutation with optimistic update ──────────────────────────────────
   const cartMutation = useMutation({
@@ -124,6 +135,9 @@ function ProductCard({ product, priority = false }) {
     onError: (error) => setMessage(getErrorMessage(error)),
   });
 
+  const { mutate: mutateCart } = cartMutation;
+  const { mutate: mutateWishlist } = wishlistMutation;
+
   // ── Handlers (stable via useCallback) ────────────────────────────────────
   const addToCart = useCallback(
     (e) => {
@@ -131,6 +145,7 @@ function ProductCard({ product, priority = false }) {
       e?.stopPropagation();
       setMessage("");
       if (inCart) { navigate("/cart"); return; }
+      if (!product.is_available) return;
       if (actionInFlight.current) return;
       if (!isLoggedIn) {
         addToGuestCart(product.uid, 1);
@@ -138,9 +153,9 @@ function ProductCard({ product, priority = false }) {
         return;
       }
       actionInFlight.current = true;
-      cartMutation.mutate();
+      mutateCart();
     },
-    [inCart, isLoggedIn, navigate, addToGuestCart, cartMutation, product.uid],
+    [inCart, isLoggedIn, navigate, addToGuestCart, mutateCart, product.uid, product.is_available],
   );
 
   const toggleWishlist = useCallback(
@@ -158,9 +173,9 @@ function ProductCard({ product, priority = false }) {
         }
         return;
       }
-      wishlistMutation.mutate(saved);
+      mutateWishlist(saved);
     },
-    [isLoggedIn, isGuestSaved, saved, product.uid, removeFromGuestWishlist, addToGuestWishlist, wishlistMutation],
+    [isLoggedIn, isGuestSaved, saved, product.uid, removeFromGuestWishlist, addToGuestWishlist, mutateWishlist],
   );
 
   // ── Image props ───────────────────────────────────────────────────────────
@@ -190,7 +205,7 @@ function ProductCard({ product, priority = false }) {
           />
         </Link>
         {!product.is_available && (
-          <span className="absolute left-2 top-2 rounded-md bg-slate-900/80 backdrop-blur-md px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+          <span className="absolute left-2 top-2 rounded-md bg-slate-900/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
             Sold out
           </span>
         )}
@@ -199,10 +214,10 @@ function ProductCard({ product, priority = false }) {
           aria-label={saved ? "Remove from wishlist" : "Add to wishlist"}
           onClick={toggleWishlist}
           disabled={wishlistMutation.isPending}
-          className={`absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full backdrop-blur-md transition-all active:scale-90 shadow-sm ${
+          className={`absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full transition-all active:scale-90 shadow-sm ${
             saved
               ? "bg-red-50 text-red-500 border border-red-200 shadow-red-500/20"
-              : "bg-white/90 text-slate-600 hover:text-red-500 border border-white/80 hover:bg-white"
+              : "bg-white/95 text-slate-600 hover:text-red-500 border border-white/80 hover:bg-white"
           } disabled:opacity-40`}
         >
           <Heart size={16} fill={saved ? "currentColor" : "none"} />

@@ -403,3 +403,82 @@ async def test_vendor_cancel_suborder_restocks_and_refunds(client, helpers):
     assert get_body["payment_status"] == "refunded"
     assert get_body["sub_orders"][0]["status"] == "cancelled"
     assert get_body["sub_orders"][0]["parent_order_status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_direct_item_enforces_max_order_qty_and_concurrency(client, helpers):
+    factory = helpers["session_factory"]
+    async with factory() as session:
+        _, vendor = await helpers["create_vendor"](session)
+        product = await helpers["create_product"](session, vendor, price="20.00", stock=5)
+        product.max_order_qty = 2
+        session.add(product)
+        await session.commit()
+        user = await helpers["create_customer"](session)
+        address = await helpers["create_address"](session, user)
+
+    # Rejects direct buy exceeding max_order_qty even though stock is 5
+    over_cap = await client.post(
+        f"{API}/checkout",
+        headers={"X-Test-User": str(user.uid)},
+        json={
+            "address_id": str(address.uid),
+            "payment_method": "cod",
+            "direct_item": {"product_id": str(product.uid), "quantity": 3},
+        },
+    )
+    assert over_cap.status_code == 400
+    assert "maximum of 2" in over_cap.json()["detail"].lower()
+
+    # Concurrent idempotent direct Buy Now executes stock decrement exactly once
+    results = await asyncio.gather(
+        *(
+            client.post(
+                f"{API}/checkout",
+                headers={
+                    "X-Test-User": str(user.uid),
+                    "Idempotency-Key": "direct-buy-idem",
+                },
+                json={
+                    "address_id": str(address.uid),
+                    "payment_method": "online_mock",
+                    "direct_item": {"product_id": str(product.uid), "quantity": 2},
+                },
+            )
+            for _ in range(3)
+        )
+    )
+    assert sorted(r.status_code for r in results) == [200, 200, 201]
+    assert len({r.json()["uid"] for r in results}) == 1
+    async with factory() as session:
+        assert (await session.get(Product, product.uid)).stock == 3
+
+
+@pytest.mark.asyncio
+async def test_vendor_cancel_and_concurrent_checkout_no_lost_update(client, helpers):
+    user1, vendor_user, product, body = await _place_one_order(client, helpers)
+    sub_uid = body["sub_orders"][0]["uid"]
+    factory = helpers["session_factory"]
+    async with factory() as session:
+        # Bump stock to 2 before concurrent vendor cancel (+1) and buyer2 checkout (-1)
+        p = await session.get(Product, product.uid)
+        p.stock = 2
+        session.add(p)
+        await session.commit()
+        user2 = await helpers["create_customer"](session)
+        addr2 = await helpers["create_address"](session, user2)
+        await helpers["fill_cart"](session, user2, (p, 1))
+
+    cancel_res, buy_res = await asyncio.gather(
+        client.patch(
+            f"{API}/vendor/sub-orders/{sub_uid}/status",
+            headers={"X-Test-User": str(vendor_user.uid)},
+            json={"status": "cancelled"},
+        ),
+        _make_order(client, helpers, user2, addr2),
+    )
+    assert cancel_res.status_code == 200
+    assert buy_res.status_code == 201
+    async with factory() as session:
+        # 2 + 1 (vendor cancel) - 1 (buyer2 checkout) == 2 (no lost update)
+        assert (await session.get(Product, product.uid)).stock == 2

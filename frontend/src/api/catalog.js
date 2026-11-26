@@ -12,6 +12,8 @@ export const listServices = (params) =>
   api.get("/services", { params }).then((r) => r.data);
 export const getProduct = (slug) =>
   api.get(`/products/slug/${slug}`).then((r) => r.data);
+export const getLiveProduct = (slug) =>
+  api.get(`/products/slug/${slug}`, { params: { _t: Date.now() } }).then((r) => r.data);
 export const listCategories = () => api.get("/categories").then((r) => r.data);
 export const getVendor = (slug) =>
   api.get(`/vendors/${slug}`).then((r) => r.data);

@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import String, cast, func, or_
+from sqlalchemy.orm import noload, selectinload
 from sqlmodel import select, text
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -115,11 +116,13 @@ class OrderService:
         if not addr:
             raise HTTPException(status_code=400, detail="Address not found")
 
-        # 2. Lock customer's cart row to serialize concurrent checkout attempts
-        cart_result = await session.exec(
-            select(Cart).where(Cart.user_id == user_id).with_for_update()
-        )
-        cart = cart_result.first()
+        # 2. Lock customer's cart row to serialize concurrent checkout attempts (when doing cart checkout)
+        cart = None
+        if not data.direct_item:
+            cart_result = await session.exec(
+                select(Cart).where(Cart.user_id == user_id).with_for_update()
+            )
+            cart = cart_result.first()
 
         # Re-check idempotency key after acquiring cart lock:
         # If a concurrent request won the lock and committed an order, return it idempotently
@@ -131,12 +134,23 @@ class OrderService:
             if existing_order:
                 return self._build_order_out(existing_order, is_existing=True)
 
-        if not cart or not cart.items:
-            raise HTTPException(status_code=400, detail="Cart is empty")
+        if data.direct_item:
+            if data.direct_item.quantity < 1:
+                raise HTTPException(status_code=400, detail="Quantity must be at least 1")
 
-        # 3. Atomically validate and decrement stock in sorted order
-        # (deterministic order prevents deadlocks when two carts share overlapping items)
-        sorted_items = sorted(cart.items, key=lambda it: it.product_id)
+            class _DirectItem:
+                def __init__(self, product_id: uuid.UUID, quantity: int):
+                    self.product_id = product_id
+                    self.quantity = quantity
+
+            sorted_items = [_DirectItem(data.direct_item.product_id, data.direct_item.quantity)]
+        else:
+            if not cart or not cart.items:
+                raise HTTPException(status_code=400, detail="Cart is empty")
+
+            # 3. Atomically validate and decrement stock in sorted order
+            # (deterministic order prevents deadlocks when two carts share overlapping items)
+            sorted_items = sorted(cart.items, key=lambda it: it.product_id)
         products_map: Dict[uuid.UUID, Product] = {}
         vendors_map: Dict[uuid.UUID, Vendor] = {}
         vendor_groups: Dict[uuid.UUID, List[CartItem]] = {}
@@ -164,6 +178,14 @@ class OrderService:
             if not pre_vendor or pre_vendor.status != "approved":
                 # Vendor not approved -- reject before any stock is decremented.
                 raise HTTPException(status_code=400, detail=f"Product unavailable: {pre_product.title}")
+            if (
+                pre_product.max_order_qty is not None
+                and item.quantity > pre_product.max_order_qty
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"You can order maximum of {pre_product.max_order_qty} for {pre_product.title}",
+                )
 
             # Bug 3 fix: extend RETURNING to capture price atomically, eliminating
             # the TOCTOU window between the UPDATE and a subsequent SELECT.
@@ -171,7 +193,10 @@ class OrderService:
                 text("""
                     UPDATE products
                     SET stock = stock - :qty
-                    WHERE uid = :pid AND stock >= :qty AND status = 'active'
+                    WHERE uid = :pid
+                      AND stock >= :qty
+                      AND status = 'active'
+                      AND (max_order_qty IS NULL OR max_order_qty >= :qty)
                     RETURNING uid, price, title, vendor_id, slug;
                 """).params(qty=item.quantity, pid=item.product_id)
             )
@@ -181,6 +206,14 @@ class OrderService:
                 if not p_check or p_check.status != "active":
                     p_name = p_check.title if p_check else str(item.product_id)
                     raise HTTPException(status_code=400, detail=f"Product unavailable: {p_name}")
+                if (
+                    p_check.max_order_qty is not None
+                    and item.quantity > p_check.max_order_qty
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"You can order maximum of {p_check.max_order_qty} for {p_check.title}",
+                    )
                 raise HTTPException(
                     status_code=400,
                     detail=f"Insufficient stock for: {p_check.title} (requested: {item.quantity}, available: {p_check.stock})",
@@ -303,9 +336,10 @@ class OrderService:
                 parent_order_status=order.status,
             ))
 
-        # 10. Clear cart
-        for item in cart.items:
-            await session.delete(item)
+        # 10. Clear cart (only for cart checkout, never for direct Buy Now)
+        if not data.direct_item and cart and cart.items:
+            for item in cart.items:
+                await session.delete(item)
 
         try:
             await session.commit()
@@ -334,18 +368,40 @@ class OrderService:
         setattr(out, "_is_existing", False)
         return out
 
+    @staticmethod
+    def _order_read_options():
+        return (
+            selectinload(Order.sub_orders).options(
+                selectinload(SubOrder.vendor),
+                selectinload(SubOrder.items)
+                .selectinload(OrderItem.product)
+                .options(
+                    selectinload(Product.images),
+                    noload(Product.vendor),
+                    noload(Product.category),
+                ),
+            ),
+        )
+
     async def get_user_orders(
         self, user_id: uuid.UUID, session: AsyncSession,
         page: int = 1, page_size: int = 20
     ) -> List[Order]:
-        stmt = select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc())
+        stmt = (
+            select(Order)
+            .options(*self._order_read_options())
+            .where(Order.user_id == user_id)
+            .order_by(Order.created_at.desc(), Order.uid.desc())
+        )
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = await session.exec(stmt)
         return result.all()
 
     async def get_order(self, order_uid: uuid.UUID, user_id: uuid.UUID, session: AsyncSession):
         result = await session.exec(
-            select(Order).where(Order.uid == order_uid, Order.user_id == user_id)
+            select(Order)
+            .options(*self._order_read_options())
+            .where(Order.uid == order_uid, Order.user_id == user_id)
         )
         order = result.first()
         if not order:
@@ -403,16 +459,15 @@ class OrderService:
             sub.status = "cancelled"
             sub.updated_at = datetime.now(timezone.utc)
             session.add(sub)
-            # Restore stock in deterministic product_id order to prevent deadlocks
+            # Restore stock atomically in deterministic product_id order
+            # (avoids stale ORM identity-map reads and prevents deadlocks)
             sorted_items = sorted(sub.items, key=lambda it: it.product_id)
             for item in sorted_items:
-                p_res = await session.exec(
-                    select(Product).where(Product.uid == item.product_id).with_for_update()
+                await session.exec(
+                    text("UPDATE products SET stock = stock + :qty WHERE uid = :pid").params(
+                        qty=item.quantity, pid=item.product_id
+                    )
                 )
-                p = p_res.first()
-                if p:
-                    p.stock += item.quantity
-                    session.add(p)
 
         session.add(order)
         await session.commit()
@@ -548,6 +603,17 @@ class OrderService:
 
         rows_result = await session.exec(
             select(SubOrder)
+            .options(
+                noload(SubOrder.order),
+                noload(SubOrder.vendor),
+                selectinload(SubOrder.items)
+                .selectinload(OrderItem.product)
+                .options(
+                    selectinload(Product.images),
+                    noload(Product.vendor),
+                    noload(Product.category),
+                ),
+            )
             .where(*conditions)
             .order_by(SubOrder.created_at.desc(), SubOrder.uid.desc())
             .offset((page - 1) * page_size)
@@ -615,13 +681,16 @@ class OrderService:
         if new_status not in allowed.get(sub.status, []):
             raise HTTPException(status_code=400, detail=f"Cannot move from {sub.status} to {new_status}")
 
-        # If seller cancels a placed or confirmed suborder, restore item stock
+        # If seller cancels a placed or confirmed suborder, restore item stock atomically
+        # in deterministic product_id order (avoids stale ORM identity-map reads and deadlocks).
         if new_status == "cancelled" and sub.status in ("placed", "confirmed"):
-            for item in sub.items:
-                p = await session.get(Product, item.product_id)
-                if p:
-                    p.stock += item.quantity
-                    session.add(p)
+            sorted_items = sorted(sub.items, key=lambda it: it.product_id)
+            for item in sorted_items:
+                await session.exec(
+                    text("UPDATE products SET stock = stock + :qty WHERE uid = :pid").params(
+                        qty=item.quantity, pid=item.product_id
+                    )
+                )
 
         sub.status = new_status
         sub.updated_at = datetime.now(timezone.utc)

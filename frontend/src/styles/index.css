@@ -4,13 +4,9 @@
  * Font loading strategy:
  *  - `font-display: swap` ensures text is visible immediately with a system
  *    font while the custom font loads. This is the correct production setting.
- *  - `preconnect` hints (added to index.html) allow the browser to open the
- *    TLS tunnel to fonts.googleapis.com early, cutting TTFB for the font CSS.
- *
- * We import only the weights actually used (400, 500, 600, 700) and use
- * the `&display=swap` parameter Google Fonts supports for `font-display:swap`.
+ *  - Google Fonts stylesheet + `preconnect` hints are placed directly in
+ *    index.html so the browser fetches the font CSS in parallel with app CSS.
  */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

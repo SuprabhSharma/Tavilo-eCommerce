@@ -140,6 +140,27 @@ def test_checkout_schema_preserves_supported_payment_method_values():
         CheckoutRequest(address_id=address_id, payment_method="online_mock").payment_method
         == "online_mock"
     )
+    with pytest.raises(ValidationError):
+        CheckoutRequest(address_id=address_id, payment_method="invalid_method")
+
+
+def test_checkout_schema_with_direct_item():
+    address_id = uuid.uuid4()
+    product_id = uuid.uuid4()
+    req = CheckoutRequest(
+        address_id=address_id,
+        payment_method="cod",
+        direct_item={"product_id": product_id, "quantity": 3},
+    )
+    assert req.direct_item is not None
+    assert req.direct_item.product_id == product_id
+    assert req.direct_item.quantity == 3
+    with pytest.raises(ValidationError):
+        CheckoutRequest(
+            address_id=address_id,
+            payment_method="cod",
+            direct_item={"product_id": product_id, "quantity": 0},
+        )
 
 
 def test_api_routes_include_protected_vendor_admin_and_order_operations():
@@ -147,6 +168,7 @@ def test_api_routes_include_protected_vendor_admin_and_order_operations():
 
     assert "get" in paths["/api/v1/products"]
     assert "post" in paths["/api/v1/vendors/apply"]
+    assert "get" in paths["/api/v1/vendors/admin/pending/page"]
     assert "patch" in paths["/api/v1/vendors/admin/{uid}/approve"]
     assert "post" in paths["/api/v1/orders/checkout"]
     assert "patch" in paths["/api/v1/products/vendor/me/{uid}"]

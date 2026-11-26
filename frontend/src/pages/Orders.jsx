@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -204,14 +204,22 @@ export function Orders() {
     });
   }, [queryClient]);
 
-  const query = useQuery({
+  const ORDERS_PAGE_SIZE = 20;
+  const query = useInfiniteQuery({
     queryKey: ["orders"],
-    queryFn: getOrders,
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      getOrders({ page: pageParam, page_size: ORDERS_PAGE_SIZE }),
+    getNextPageParam: (lastPage, allPages) =>
+      Array.isArray(lastPage) && lastPage.length === ORDERS_PAGE_SIZE
+        ? allPages.length + 1
+        : undefined,
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchInterval: (q) => {
-      const list = q.state.data;
-      if (!Array.isArray(list) || list.length === 0) return false;
+      const pages = q.state.data?.pages;
+      const list = Array.isArray(pages) ? pages.flat() : [];
+      if (list.length === 0) return false;
       const hasActive = list.some((o) => {
         const ms = deriveMasterStatus(o.sub_orders);
         return ["placed", "confirmed", "shipped", "partially_delivered"].includes(ms);
@@ -220,8 +228,10 @@ export function Orders() {
     },
   });
 
+  const [searchParams] = useSearchParams();
+  const initialFilter = searchParams.get("status") || searchParams.get("tab") || "in_progress";
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(initialFilter);
 
   if (query.isLoading) {
     return (
@@ -244,7 +254,7 @@ export function Orders() {
     );
   }
 
-  const rawOrders = Array.isArray(query.data) ? query.data : [];
+  const rawOrders = query.data?.pages?.flat() ?? [];
 
   // Augment each order with the client-computed master status
   const orders = rawOrders.map((o) => ({
@@ -273,6 +283,21 @@ export function Orders() {
     );
     return orderIdMatch || itemMatch;
   });
+
+  const inProgressCount = orders.filter((o) =>
+    ["placed", "confirmed", "shipped", "partially_delivered"].includes(o._masterStatus),
+  ).length;
+  const partialCount = orders.filter((o) => o._masterStatus === "partially_delivered").length;
+  const deliveredCount = orders.filter((o) => o._masterStatus === "delivered").length;
+  const cancelledCount = orders.filter((o) => o._masterStatus === "cancelled").length;
+
+  const orderTabs = [
+    { id: "in_progress", label: `In Progress (${inProgressCount})` },
+    { id: "all", label: `All (${orders.length})` },
+    { id: "partially_delivered", label: `Partial (${partialCount})` },
+    { id: "delivered", label: `Delivered (${deliveredCount})` },
+    { id: "cancelled", label: `Cancelled (${cancelledCount})` },
+  ];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -326,13 +351,7 @@ export function Orders() {
             </div>
 
             <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm">
-              {[
-                { id: "all", label: `All (${orders.length})` },
-                { id: "in_progress", label: "In Progress" },
-                { id: "partially_delivered", label: "Partial" },
-                { id: "delivered", label: "Delivered" },
-                { id: "cancelled", label: "Cancelled" },
-              ].map((tab) => (
+              {orderTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setStatusFilter(tab.id)}
@@ -349,21 +368,43 @@ export function Orders() {
           </div>
 
           {filteredOrders.length === 0 ? (
-            <div className="mt-10 rounded-card border border-dashed border-line bg-white p-12 text-center">
-              <Package size={40} className="mx-auto text-slate-300" />
-              <h3 className="mt-4 font-semibold text-ink">No orders match your filter</h3>
-              <p className="mt-1 text-sm text-muted">Try a different search or reset the filter.</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => {
-                  setSearchQuery("");
-                  setStatusFilter("all");
-                }}
-              >
-                Reset Filters
-              </Button>
-            </div>
+            statusFilter === "in_progress" && inProgressCount === 0 && orders.length > 0 ? (
+              <div className="mt-10 rounded-2xl border border-dashed border-line bg-white p-12 text-center">
+                <Package size={40} className="mx-auto text-brand-500" />
+                <h3 className="mt-4 font-bold text-ink">No active orders in progress</h3>
+                <p className="mt-1 text-sm text-muted">You have no ongoing shipments right now.</p>
+                <div className="mt-5 flex justify-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setStatusFilter("all");
+                    }}
+                  >
+                    View All Orders ({orders.length})
+                  </Button>
+                  <Link to="/products">
+                    <Button>Start Shopping</Button>
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-10 rounded-card border border-dashed border-line bg-white p-12 text-center">
+                <Package size={40} className="mx-auto text-slate-300" />
+                <h3 className="mt-4 font-semibold text-ink">No orders match your filter</h3>
+                <p className="mt-1 text-sm text-muted">Try a different search or reset the filter.</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            )
           ) : (
             <div className="mt-6 space-y-4">
               {filteredOrders.map((order) => {
@@ -505,6 +546,17 @@ export function Orders() {
                   </div>
                 );
               })}
+              {query.hasNextPage && (
+                <div className="pt-4 text-center">
+                  <Button
+                    variant="outline"
+                    loading={query.isFetchingNextPage}
+                    onClick={() => query.fetchNextPage()}
+                  >
+                    Load older orders
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -545,7 +597,8 @@ export function OrderDetail() {
     placeholderData: () => {
       if (location.state?.order) return location.state.order;
       const cached = queryClient.getQueryData(["orders"]);
-      return cached?.find((o) => o.uid === id);
+      const list = Array.isArray(cached) ? cached : cached?.pages?.flat() || [];
+      return list.find((o) => o.uid === id);
     },
     staleTime: 0,
     refetchOnWindowFocus: true,

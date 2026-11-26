@@ -1,7 +1,7 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.dependencies import get_verified_user
@@ -86,7 +86,13 @@ async def checkout(
     current_user: User = Depends(get_verified_user),
     session: AsyncSession = Depends(get_session),
 ):
-    key = request.headers.get("Idempotency-Key")
+    raw_key = request.headers.get("Idempotency-Key")
+    key = raw_key.strip() if raw_key and raw_key.strip() else None
+    if key and len(key) > 255:
+        raise HTTPException(
+            status_code=400,
+            detail="Idempotency-Key header must not exceed 255 characters",
+        )
     order = await service.checkout(current_user.uid, data, session, idempotency_key=key)
     if getattr(order, "_is_existing", False):
         response.status_code = status.HTTP_200_OK

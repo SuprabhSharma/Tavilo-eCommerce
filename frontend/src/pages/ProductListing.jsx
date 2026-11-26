@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Filter, Search, SlidersHorizontal } from "lucide-react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -239,15 +239,7 @@ export default function ProductListing() {
           <div className="mb-4 text-sm text-muted">
             Browse products
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {productItems.map((product, idx) => (
-              <ProductCard
-                key={product.uid}
-                product={product}
-                priority={idx < 4}
-              />
-            ))}
-          </div>
+          <WindowedProductGrid items={productItems} />
           <div ref={loadMoreRef} className="mt-8 flex min-h-11 items-center justify-center" aria-live="polite">
             {isFetchingNextPage ? (
               <span className="text-sm text-muted">Loading more products…</span>
@@ -264,6 +256,139 @@ export default function ProductListing() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+const ROW_GAP_PX = 12; // Tailwind gap-3 / space-y-3
+const DEFAULT_ROW_STRIDE = 410;
+const OVERSCAN_ROWS = 4;
+
+function getGridColumns() {
+  if (typeof window === "undefined") return 4;
+  if (window.innerWidth >= 1024) return 4;
+  if (window.innerWidth >= 640) return 3;
+  return 2;
+}
+
+/**
+ * Flipkart-style windowed infinite-scroll product grid.
+ * Keeps mounted DOM cards bounded to the viewport + overscan rows even after
+ * scrolling through thousands of products while preserving native window scroll.
+ */
+function WindowedProductGrid({ items }) {
+  const containerRef = useRef(null);
+  const firstRowRef = useRef(null);
+  const rafRef = useRef(null);
+  const [cols, setCols] = useState(getGridColumns);
+  const [rowStride, setRowStride] = useState(DEFAULT_ROW_STRIDE);
+
+  const totalRows = Math.ceil(items.length / cols);
+  const [range, setRange] = useState({ start: 0, end: Math.min(totalRows, 12) });
+
+  const recomputeWindow = useCallback(() => {
+    const total = Math.ceil(items.length / cols);
+    if (total <= 10 || typeof window === "undefined") {
+      setRange({ start: 0, end: total });
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) {
+      setRange({ start: 0, end: Math.min(total, 12) });
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const containerTop = rect.top + window.scrollY;
+    const viewportTop = Math.max(0, window.scrollY - containerTop);
+    const viewportBottom = Math.max(0, window.scrollY + window.innerHeight - containerTop);
+    const start = Math.max(0, Math.floor(viewportTop / rowStride) - OVERSCAN_ROWS);
+    const end = Math.min(total, Math.ceil(viewportBottom / rowStride) + OVERSCAN_ROWS);
+    setRange((prev) =>
+      prev.start === start && prev.end === end ? prev : { start, end },
+    );
+  }, [items.length, cols, rowStride]);
+
+  useEffect(() => {
+    recomputeWindow();
+  }, [recomputeWindow]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const schedule = () => {
+      if (rafRef.current !== null) return;
+      rafRef.current = window.requestAnimationFrame(() => {
+        rafRef.current = null;
+        recomputeWindow();
+      });
+    };
+    const handleResize = () => {
+      const nextCols = getGridColumns();
+      setCols((prev) => (prev === nextCols ? prev : nextCols));
+      schedule();
+    };
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", handleResize, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", handleResize);
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [recomputeWindow]);
+
+  useEffect(() => {
+    const el = firstRowRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const measure = () => {
+      const height = Math.round(el.getBoundingClientRect().height);
+      if (height > 120) {
+        const nextStride = height + ROW_GAP_PX;
+        setRowStride((prev) => (Math.abs(prev - nextStride) <= 2 ? prev : nextStride));
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [cols, range.start, items.length]);
+
+  const startRow = Math.min(range.start, totalRows);
+  const endRow = Math.max(startRow, Math.min(range.end, totalRows));
+  const paddingTop = startRow * rowStride;
+  const paddingBottom = Math.max(0, (totalRows - endRow) * rowStride);
+
+  const visibleRows = [];
+  for (let rowIdx = startRow; rowIdx < endRow; rowIdx += 1) {
+    const startItem = rowIdx * cols;
+    visibleRows.push({
+      rowIdx,
+      rowItems: items.slice(startItem, startItem + cols),
+    });
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ paddingTop, paddingBottom }}
+      className="space-y-3"
+    >
+      {visibleRows.map(({ rowIdx, rowItems }, idx) => (
+        <div
+          key={rowIdx}
+          ref={idx === 0 ? firstRowRef : undefined}
+          className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+        >
+          {rowItems.map((product, colIdx) => (
+            <ProductCard
+              key={product.uid}
+              product={product}
+              priority={rowIdx === 0 && colIdx < 4}
+            />
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

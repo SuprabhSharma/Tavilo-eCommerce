@@ -7,13 +7,13 @@ from typing import Optional
 
 from sqlmodel import select
 from fastapi import HTTPException
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.db.models import User, Vendor
 from src.errors import InsufficientPermission, UserNotFound
 
-from .schemas import VendorApply, VendorListOut, VendorUpdate
+from .schemas import VendorApply, VendorListOut, VendorPendingPageOut, VendorUpdate
 
 
 class VendorService:
@@ -80,9 +80,39 @@ class VendorService:
         result = await session.exec(select(Vendor).where(Vendor.user_id == user_id))
         return result.first()
 
-    async def get_all_pending(self, session: AsyncSession):
-        result = await session.exec(select(Vendor).where(Vendor.status == "pending"))
+    async def get_all_pending(
+        self, session: AsyncSession, *, limit: int = 50, offset: int = 0
+    ):
+        result = await session.exec(
+            select(Vendor)
+            .where(Vendor.status == "pending")
+            .order_by(Vendor.created_at.desc(), Vendor.uid.desc())
+            .offset(offset)
+            .limit(limit)
+        )
         return result.all()
+
+    async def get_pending_page(
+        self, session: AsyncSession, *, page: int = 1, page_size: int = 25
+    ) -> VendorPendingPageOut:
+        cond = Vendor.status == "pending"
+        total = int((await session.exec(select(func.count(Vendor.uid)).where(cond))).one() or 0)
+        rows = (
+            await session.exec(
+                select(Vendor)
+                .where(cond)
+                .order_by(Vendor.created_at.desc(), Vendor.uid.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return VendorPendingPageOut(
+            items=rows,
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=(total + page_size - 1) // page_size,
+        )
 
     async def apply(self, user_id: uuid.UUID, data: VendorApply, session: AsyncSession) -> Vendor:
         from src.errors import VendorAlreadyExists, VendorSlugAlreadyExists

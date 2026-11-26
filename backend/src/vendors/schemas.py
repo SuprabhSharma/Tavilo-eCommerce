@@ -35,3 +35,13 @@ class VendorListOut(BaseModel):
     items: list[VendorOut]
     has_more: bool = False
     next_cursor: str | None = None
+
+
+class VendorPendingPageOut(BaseModel):
+    """Paginated admin pending-vendor queue."""
+
+    items: list[VendorOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int

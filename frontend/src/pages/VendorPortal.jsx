@@ -1,6 +1,12 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Link,
   Navigate,
@@ -45,10 +51,11 @@ import {
   createVendorService,
   deleteVendorProduct,
   deleteVendorService,
-  getAllVendorProducts,
-  getAllVendorServices,
-  getVendorOrders,
+  getVendorOrdersPage,
+  getVendorProducts,
+  getVendorProductSummary,
   getVendorProfile,
+  getVendorServices,
   updateVendorProduct,
   updateVendorService,
   updateVendorProfile,
@@ -429,39 +436,31 @@ function PendingVendor({ profile }) {
 }
 
 function ApprovedOverview({ vendor }) {
+  const summary = useQuery({
+    queryKey: ["vendor-product-summary"],
+    queryFn: getVendorProductSummary,
+    enabled: vendor?.status === "approved",
+  });
   const products = useQuery({
-    queryKey: ["vendor-products"],
-    queryFn: getAllVendorProducts,
+    queryKey: ["vendor-products", { page: 1, page_size: 5 }],
+    queryFn: () => getVendorProducts({ page: 1, page_size: 5, include_total: false }),
     enabled: vendor?.status === "approved",
   });
-  const ordersQuery = useQuery({
-    queryKey: ["vendor-orders"],
-    queryFn: getVendorOrders,
+  const ordersPage = useQuery({
+    queryKey: ["vendor-orders-page", { page: 1, page_size: 5 }],
+    queryFn: () => getVendorOrdersPage({ page: 1, page_size: 5 }),
     enabled: vendor?.status === "approved",
   });
-  const orderList = useMemo(() => {
-    const orders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
-    return orders
-      .map((order, index) => ({ order, index }))
-      .sort((left, right) => {
-        const rightDate = Date.parse(right.order.created_at || "");
-        const leftDate = Date.parse(left.order.created_at || "");
-        return (
-          (Number.isNaN(rightDate) ? 0 : rightDate) -
-            (Number.isNaN(leftDate) ? 0 : leftDate) ||
-          left.index - right.index
-        );
-      })
-      .map(({ order }) => order);
-  }, [ordersQuery.data]);
-  const pendingOrders = orderList.filter((o) => o.status === "placed");
-  const items = products.data?.items || [];
-  const active = items.filter((item) => item.status === "active");
-  const lowStock = items.filter((item) => item.stock <= LOW_STOCK_THRESHOLD);
-  const inventoryValue = items.reduce(
-    (sum, item) => sum + Number(item.price || 0) * Number(item.stock || 0),
+  const statusCounts = ordersPage.data?.status_counts || {};
+  const totalOrders = Object.values(statusCounts).reduce(
+    (sum, count) => sum + Number(count || 0),
     0,
   );
+  const pendingCount = Number(statusCounts.placed || 0);
+  const orderList = ordersPage.data?.items || [];
+  const items = products.data?.items || [];
+  const activeCount = summary.data?.active ?? 0;
+  const inventoryValue = summary.data?.inventory_value ?? 0;
   return (
     <div>
       <PageHeader
@@ -474,7 +473,7 @@ function ApprovedOverview({ vendor }) {
               to="/vendor/orders"
               className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-semibold text-ink hover:bg-slate-50 sm:flex-none sm:px-4"
             >
-              <ShoppingBag size={17} /> View Orders ({orderList.length})
+              <ShoppingBag size={17} /> View Orders ({totalOrders})
             </Link>
             <Link
               to="/vendor/products"
@@ -485,28 +484,33 @@ function ApprovedOverview({ vendor }) {
           </div>
         }
       />
-      {products.isError ? (
-        <ErrorState onRetry={products.refetch} />
+      {products.isError || summary.isError ? (
+        <ErrorState
+          onRetry={() => {
+            summary.refetch();
+            products.refetch();
+          }}
+        />
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric
               icon={ShoppingBag}
               label="Total orders"
-              value={orderList.length}
+              value={totalOrders}
             />
             <Metric
               icon={CircleAlert}
               label="Action required"
-              value={pendingOrders.length}
-              tone={pendingOrders.length ? "warning" : "default"}
+              value={pendingCount}
+              tone={pendingCount ? "warning" : "default"}
               to="/vendor/orders?status=action_required"
               actionLabel="Manage orders"
             />
             <Metric
               icon={BarChart3}
               label="Live listings"
-              value={active.length}
+              value={activeCount}
             />
             <Metric
               icon={WalletCards}
@@ -527,10 +531,10 @@ function ApprovedOverview({ vendor }) {
                     to="/vendor/orders"
                     className="text-sm font-semibold text-brand-600"
                   >
-                    Manage all ({orderList.length})
+                    Manage all ({totalOrders})
                   </Link>
                 </div>
-                {ordersQuery.isLoading ? (
+                {ordersPage.isLoading ? (
                   <div className="mt-4 space-y-3">
                     <Skeleton className="h-12" />
                     <Skeleton className="h-12" />
@@ -655,10 +659,10 @@ function ApprovedOverview({ vendor }) {
                 Store health
               </p>
               <p className="mt-3 text-3xl font-bold">
-                {active.length ? "Ready" : "Start listing"}
+                {activeCount ? "Ready" : "Start listing"}
               </p>
               <p className="mt-2 text-sm leading-6 text-blue-100">
-                {active.length
+                {activeCount
                   ? "Your store has live products customers can discover."
                   : "Complete your catalogue with titles, images, prices and stock."}
               </p>
@@ -722,11 +726,23 @@ function VendorProducts({ profile }) {
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
-  const products = useQuery({
-    queryKey: ["vendor-products"],
-    queryFn: getAllVendorProducts,
+  const deferredSearch = useDeferredValue(search.trim());
+  const loadMoreRef = useRef(null);
+
+  const products = useInfiniteQuery({
+    queryKey: ["vendor-products", { q: deferredSearch }],
+    initialPageParam: null,
+    queryFn: ({ pageParam }) =>
+      getVendorProducts({
+        page_size: 25,
+        q: deferredSearch || undefined,
+        cursor: pageParam || undefined,
+        include_total: false,
+      }),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor : undefined,
     enabled: profile.data?.status === "approved",
+    placeholderData: keepPreviousData,
   });
   const categories = useQuery({
     queryKey: ["categories"],
@@ -735,15 +751,31 @@ function VendorProducts({ profile }) {
   });
   const remove = useMutation({
     mutationFn: deleteVendorProduct,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["vendor-products"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
+    },
     onError: (e) => setError(getErrorMessage(e)),
   });
-  const items = products.data?.items;
-  const filteredItems = useMemo(
-    () => rankProducts(items || [], deferredSearch),
-    [items, deferredSearch],
+  const items = useMemo(
+    () => products.data?.pages.flatMap((page) => page.items) ?? [],
+    [products.data],
   );
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = products;
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage || isFetchingNextPage) return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) fetchNextPage();
+      },
+      { rootMargin: "400px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, items.length]);
+
   if (profile.isLoading) return <LoadingPanel />;
   if (profile.isError || !profile.data) return <ApplicationPrompt />;
   if (profile.data.status !== "approved")
@@ -762,9 +794,9 @@ function VendorProducts({ profile }) {
       )}
       {products.isLoading ? (
         <LoadingPanel />
-      ) : products.isError ? (
+      ) : products.isError && items.length === 0 ? (
         <ErrorState onRetry={products.refetch} />
-      ) : items?.length === 0 ? (
+      ) : !deferredSearch && items.length === 0 ? (
         <EmptyState
           title="Your catalogue is empty"
           description="Add a product with a price, stock level and at least one image."
@@ -813,7 +845,7 @@ function VendorProducts({ profile }) {
             </Button>
           </div>
           <div className="overflow-hidden rounded-card border border-line bg-white">
-            {filteredItems.length === 0 ? (
+            {items.length === 0 ? (
               <div className="px-5 py-10 text-center">
                 <p className="font-semibold text-ink">No products found</p>
                 <p className="mt-1 text-sm text-muted">
@@ -830,74 +862,93 @@ function VendorProducts({ profile }) {
               </div>
             ) : (
               <>
-                <div className="hidden grid-cols-[1fr_110px_120px_100px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
+                <div className="hidden grid-cols-[1fr_110px_90px_100px_88px] gap-4 border-b border-line bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-muted sm:grid">
                   <span>Product</span>
                   <span>Price</span>
                   <span>Stock</span>
                   <span>Status</span>
                   <span className="text-right">Actions</span>
                 </div>
-                {filteredItems.map((product) => (
-                <div
-                  key={product.uid}
-                  className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_120px_100px] sm:items-center sm:gap-4"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">
-                      {product.title}
-                    </p>
-                    <p className="mt-1 truncate text-xs text-muted">
-                      {product.sku || product.slug}
-                    </p>
-                  </div>
-                  <ProductPrice
-                    price={product.price}
-                    mrp={product.mrp}
-                    className="text-sm"
-                  />
-
-                  <Badge
-                    tone={
-                      product.status === "active"
-                        ? "success"
-                        : product.status === "archived"
-                          ? "danger"
-                          : "warning"
-                    }
+                {items.map((product) => (
+                  <div
+                    key={product.uid}
+                    className="grid gap-3 border-b border-line px-5 py-4 last:border-0 sm:grid-cols-[1fr_110px_90px_100px_88px] sm:items-center sm:gap-4"
                   >
-                    {product.status}
-                  </Badge>
-                  <div className="flex justify-end gap-1">
-                    <button
-                      aria-label={`Edit ${product.title}`}
-                      onClick={() => {
-                        setError("");
-                        setEditing(product);
-                      }}
-                      className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">
+                        {product.title}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-muted">
+                        {product.sku || product.slug}
+                      </p>
+                    </div>
+                    <ProductPrice
+                      price={product.price}
+                      mrp={product.mrp}
+                      className="text-sm"
+                    />
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        product.stock <= LOW_STOCK_THRESHOLD
+                          ? "text-amber-700"
+                          : "text-ink"
+                      }`}
                     >
-                      <Edit3 size={16} />
-                    </button>
-                    <button
-                      aria-label={`Archive ${product.title}`}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Archive this product? It will disappear from your storefront.",
+                      {product.stock}
+                    </span>
+                    <Badge
+                      tone={
+                        product.status === "active"
+                          ? "success"
+                          : product.status === "archived"
+                            ? "danger"
+                            : "warning"
+                      }
+                    >
+                      {product.status}
+                    </Badge>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        aria-label={`Edit ${product.title}`}
+                        onClick={() => {
+                          setError("");
+                          setEditing(product);
+                        }}
+                        className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                      <button
+                        aria-label={`Archive ${product.title}`}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Archive this product? It will disappear from your storefront.",
+                            )
                           )
-                        )
-                          remove.mutate(product.uid);
-                      }}
-                      className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                            remove.mutate(product.uid);
+                        }}
+                        className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
-                </div>
                 ))}
               </>
             )}
           </div>
+          {(hasNextPage || isFetchingNextPage) && (
+            <div ref={loadMoreRef} className="pt-2 text-center">
+              <Button
+                variant="outline"
+                loading={isFetchingNextPage}
+                onClick={() => fetchNextPage()}
+              >
+                Load more products
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {editing && (
@@ -905,20 +956,10 @@ function VendorProducts({ profile }) {
           product={editing.uid ? editing : null}
           categories={categories.data || []}
           onClose={() => setEditing(null)}
-          onSaved={(updatedProduct) => {
+          onSaved={() => {
             setEditing(null);
-            if (updatedProduct?.uid) {
-              queryClient.setQueryData(["vendor-products"], (current) => {
-                if (!current?.items) return current;
-                return {
-                  ...current,
-                  items: current.items.map((item) =>
-                    item.uid === updatedProduct.uid ? updatedProduct : item,
-                  ),
-                };
-              });
-            }
             queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+            queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
           }}
         />
       )}
@@ -926,42 +967,17 @@ function VendorProducts({ profile }) {
   );
 }
 
-function rankProducts(products, search) {
-  const query = search.trim().toLowerCase();
-  if (!query) return products;
-
-  const terms = query.split(/\s+/).filter(Boolean);
-  return products
-    .map((product, index) => {
-      const title = String(product.title || "").toLowerCase();
-      const sku = String(product.sku || "").toLowerCase();
-      const slug = String(product.slug || "").toLowerCase();
-      const searchable = `${title} ${sku} ${slug}`;
-      const score = terms.reduce((total, term) => {
-        if (title === term) return total + 100;
-        if (title.startsWith(term)) return total + 60;
-        if (title.split(/\s+/).some((word) => word.startsWith(term)))
-          return total + 45;
-        if (title.includes(term)) return total + 30;
-        if (sku.startsWith(term) || slug.startsWith(term)) return total + 25;
-        if (searchable.includes(term)) return total + 10;
-        return total;
-      }, 0);
-      return { product, score, index };
-    })
-    .filter(({ score }) => score > 0)
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .map(({ product }) => product);
-}
-
 function VendorServices({ profile }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
   const services = useQuery({
-    queryKey: ["vendor-services"],
-    queryFn: getAllVendorServices,
+    queryKey: ["vendor-services", page, pageSize],
+    queryFn: () => getVendorServices({ page, page_size: pageSize }),
     enabled: profile.data?.status === "approved",
+    placeholderData: keepPreviousData,
   });
   const remove = useMutation({
     mutationFn: deleteVendorService,
@@ -974,6 +990,7 @@ function VendorServices({ profile }) {
   if (profile.data.status !== "approved")
     return <PendingVendor profile={profile.data} />;
   const items = services.data?.items || [];
+  const totalPages = services.data?.pages || 0;
   return (
     <div>
       <PageHeader
@@ -1006,47 +1023,72 @@ function VendorServices({ profile }) {
           description="Service listings will be available in a future update."
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-line bg-white">
-          {items.map((item) => (
-            <div
-              key={item.uid}
-              className="flex items-center justify-between gap-4 border-b border-line px-5 py-4 last:border-0"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">{item.title}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {formatCurrency(item.price)} Â· {item.duration_minutes}{" "}
-                  minutes
-                </p>
+        <>
+          <div className="overflow-hidden rounded-card border border-line bg-white">
+            {items.map((item) => (
+              <div
+                key={item.uid}
+                className="flex items-center justify-between gap-4 border-b border-line px-5 py-4 last:border-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{item.title}</p>
+                  <p className="mt-1 text-xs text-muted">
+                    {formatCurrency(item.price)} &middot; {item.duration_minutes}{" "}
+                    minutes
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={item.status === "active" ? "success" : "warning"}>
+                    {item.status}
+                  </Badge>
+                  <button
+                    aria-label={`Edit ${item.title}`}
+                    onClick={() => {
+                      setError("");
+                      setEditing(item);
+                    }}
+                    className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+                  >
+                    <Edit3 size={16} />
+                  </button>
+                  <button
+                    aria-label={`Archive ${item.title}`}
+                    onClick={() => {
+                      if (window.confirm("Archive this service?"))
+                        remove.mutate(item.uid);
+                    }}
+                    className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge tone={item.status === "active" ? "success" : "warning"}>
-                  {item.status}
-                </Badge>
-                <button
-                  aria-label={`Edit ${item.title}`}
-                  onClick={() => {
-                    setError("");
-                    setEditing(item);
-                  }}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-ink"
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <span className="text-muted">
+                Page {page} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
-                  <Edit3 size={16} />
-                </button>
-                <button
-                  aria-label={`Archive ${item.title}`}
-                  onClick={() => {
-                    if (window.confirm("Archive this service?"))
-                      remove.mutate(item.uid);
-                  }}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-muted hover:bg-red-50 hover:text-red-700"
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 >
-                  <Trash2 size={16} />
-                </button>
+                  Next
+                </Button>
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
       {editing && (
         <ServiceEditor
@@ -1857,22 +1899,45 @@ function VendorOrders({ profile }) {
     ? requestedStatus
     : "all";
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearch = useDeferredValue(searchQuery.trim());
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
   const [copiedId, setCopiedId] = useState(null);
   const [cancelModalSubUid, setCancelModalSubUid] = useState(null);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
 
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, deferredSearch]);
+
   const changeStatusFilter = (nextStatus) => {
     const nextParams = new URLSearchParams(searchParams);
     if (nextStatus === "all") nextParams.delete("status");
     else nextParams.set("status", nextStatus);
+    setPage(1);
     setSearchParams(nextParams, { replace: true });
   };
 
   const ordersQuery = useQuery({
-    queryKey: ["vendor-orders"],
-    queryFn: getVendorOrders,
+    queryKey: [
+      "vendor-orders-page",
+      {
+        page,
+        pageSize,
+        status: statusFilter,
+        search: deferredSearch,
+      },
+    ],
+    queryFn: () =>
+      getVendorOrdersPage({
+        page,
+        page_size: pageSize,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        search: deferredSearch || undefined,
+      }),
     enabled: profile.data?.status === "approved",
+    placeholderData: keepPreviousData,
     // Keep counts and order rows in sync with changes made elsewhere.
     refetchInterval: 15000,
     refetchIntervalInBackground: false,
@@ -1883,7 +1948,7 @@ function VendorOrders({ profile }) {
   useEffect(
     () =>
       subscribeToOrderUpdates(() => {
-        queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
+        queryClient.invalidateQueries({ queryKey: ["vendor-orders-page"] });
       }),
     [queryClient],
   );
@@ -1901,26 +1966,13 @@ function VendorOrders({ profile }) {
         cancelled: "Order cancelled and reserved stock restored.",
       };
       setActionMessage(actionLabels[variables.status] || "Order updated.");
-      queryClient.setQueryData(["vendor-orders"], (current) =>
-        Array.isArray(current)
-          ? current.map((order) =>
-              order.uid === data.uid
-                ? {
-                    ...order,
-                    status: data.status,
-                    parent_order_status: data.parent_order_status,
-                    updated_at: data.updated_at,
-                  }
-                : order,
-            )
-          : current,
-      );
-      queryClient.invalidateQueries({ queryKey: ["vendor-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-orders-page"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["order"] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product"] });
       queryClient.invalidateQueries({ queryKey: ["vendor-products"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-product-summary"] });
       broadcastOrderUpdate({
         subUid: variables.subUid,
         orderId: data?.order_id,
@@ -1959,45 +2011,24 @@ function VendorOrders({ profile }) {
     return <ErrorState onRetry={ordersQuery.refetch} />;
   }
 
-  const rawOrders = Array.isArray(ordersQuery.data) ? ordersQuery.data : [];
-  const statusCounts = rawOrders.reduce(
-    (counts, order) => {
-      const status = getVendorOrderStatus(order);
-      if (Object.prototype.hasOwnProperty.call(counts, status)) {
-        counts[status] += 1;
-      }
-      return counts;
-    },
-    { placed: 0, confirmed: 0, shipped: 0, delivered: 0, cancelled: 0 },
-  );
-
-  const filteredOrders = rawOrders.filter((order) => {
-    const orderStatus = getVendorOrderStatus(order);
-    const matchesStatus =
-      statusFilter === "all"
-        ? true
-        : statusFilter === "action_required"
-          ? orderStatus === "placed"
-          : orderStatus === statusFilter;
-
-    if (!matchesStatus) return false;
-
-    if (!searchQuery.trim()) return true;
-
-    const q = searchQuery.toLowerCase().trim();
-    const idMatch =
-      order.uid?.toLowerCase().includes(q) ||
-      order.order_id?.toLowerCase().includes(q);
-    const customerMatch =
-      order.address_snapshot?.name?.toLowerCase().includes(q) ||
-      order.address_snapshot?.phone?.toLowerCase().includes(q) ||
-      order.address_snapshot?.city?.toLowerCase().includes(q);
-    const itemMatch = order.items?.some((i) =>
-      i.title_snapshot?.toLowerCase().includes(q)
-    );
-
-    return idMatch || customerMatch || itemMatch;
-  });
+  const pageData = ordersQuery.data || {};
+  const filteredOrders = Array.isArray(pageData.items) ? pageData.items : [];
+  const rawCounts = pageData.status_counts || {};
+  const statusCounts = {
+    placed: Number(rawCounts.placed || 0),
+    confirmed: Number(rawCounts.confirmed || 0),
+    shipped: Number(rawCounts.shipped || 0),
+    delivered: Number(rawCounts.delivered || 0),
+    cancelled: Number(rawCounts.cancelled || 0),
+  };
+  const totalAllOrders =
+    statusCounts.placed +
+    statusCounts.confirmed +
+    statusCounts.shipped +
+    statusCounts.delivered +
+    statusCounts.cancelled;
+  const totalPages = pageData.pages || 0;
+  const totalFiltered = pageData.total ?? filteredOrders.length;
 
   return (
     <div>
@@ -2148,7 +2179,7 @@ function VendorOrders({ profile }) {
           className="flex max-w-full flex-wrap gap-1.5 overflow-x-auto pb-1 text-sm"
         >
           {[
-            { id: "all", label: `All (${rawOrders.length})` },
+            { id: "all", label: `All (${totalAllOrders})` },
             {
               id: "action_required",
               label: `New Orders (${statusCounts.placed})`,
@@ -2199,7 +2230,8 @@ function VendorOrders({ profile }) {
           )}
         </div>
       ) : (
-        <div className="mt-6 space-y-5">
+        <>
+          <div className="mt-6 space-y-5">
           {filteredOrders.map((subOrder) => {
             const orderStatus = getVendorOrderStatus(subOrder);
             const isPlaced = orderStatus === "placed";
@@ -2501,7 +2533,31 @@ function VendorOrders({ profile }) {
               </div>
             );
           })}
-        </div>
+          </div>
+          {totalPages > 1 && (
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 text-sm">
+              <span className="text-muted">
+                Page {page} of {totalPages} ({totalFiltered} orders)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Cancellation Confirmation Modal */}

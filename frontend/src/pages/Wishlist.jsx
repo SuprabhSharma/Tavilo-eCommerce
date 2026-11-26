@@ -140,6 +140,7 @@ export default function Wishlist() {
   };
 
   const handleAddToCart = (product) => {
+    if (!product?.is_available) return;
     if (loggedIn) {
       authAddToCartMutation.mutate({ productId: product.uid });
     } else {

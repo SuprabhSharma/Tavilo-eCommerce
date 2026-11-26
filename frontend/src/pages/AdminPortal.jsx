@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Route, Routes } from "react-router-dom";
 import {
   Check,
@@ -12,7 +12,7 @@ import {
 import {
   approveVendor,
   getAdminStats,
-  getPendingVendors,
+  getPendingVendorsPage,
   suspendVendor,
 } from "../api/vendor";
 import { PageHeader } from "../components/Page";
@@ -81,11 +81,12 @@ export default function AdminPortal() {
 function AdminOverview() {
   const stats = useQuery({ queryKey: ["admin-stats"], queryFn: getAdminStats });
   const pending = useQuery({
-    queryKey: ["pending-vendors"],
-    queryFn: getPendingVendors,
+    queryKey: ["pending-vendors-page", 1, 4],
+    queryFn: () => getPendingVendorsPage({ page: 1, page_size: 4 }),
   });
   if (stats.isError) return <ErrorState onRetry={stats.refetch} />;
   const data = stats.data || {};
+  const pendingItems = pending.data?.items || [];
   return (
     <div>
       <PageHeader
@@ -116,7 +117,7 @@ function AdminOverview() {
               <Icon size={18} />
             </span>
             <p className="mt-5 text-2xl font-bold">
-              {stats.isLoading ? "â€”" : (value ?? 0)}
+              {stats.isLoading ? "—" : (value ?? 0)}
             </p>
             <p className="mt-1 text-sm text-muted">{label}</p>
           </div>
@@ -138,9 +139,9 @@ function AdminOverview() {
               <Skeleton className="h-12" />
               <Skeleton className="h-12" />
             </div>
-          ) : pending.data?.length ? (
+          ) : pendingItems.length ? (
             <div className="mt-4 divide-y divide-line">
-              {pending.data.slice(0, 4).map((vendor) => (
+              {pendingItems.map((vendor) => (
                 <div
                   key={vendor.uid}
                   className="flex items-center justify-between gap-3 py-3"
@@ -167,7 +168,7 @@ function AdminOverview() {
             Gross order value
           </p>
           <p className="mt-3 text-3xl font-bold">
-            {stats.isLoading ? "â€”" : formatCurrency(data.revenue || 0)}
+            {stats.isLoading ? "—" : formatCurrency(data.revenue || 0)}
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-300">
             Total value of orders processed through Tavilo.
@@ -180,20 +181,27 @@ function AdminOverview() {
 
 function VendorApprovals() {
   const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
   const pending = useQuery({
-    queryKey: ["pending-vendors"],
-    queryFn: getPendingVendors,
+    queryKey: ["pending-vendors-page", page, pageSize],
+    queryFn: () => getPendingVendorsPage({ page, page_size: pageSize }),
+    placeholderData: keepPreviousData,
   });
   const [error, setError] = useState("");
   const action = useMutation({
     mutationFn: ({ uid, type }) =>
       type === "approve" ? approveVendor(uid) : suspendVendor(uid),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-vendors-page"] });
       queryClient.invalidateQueries({ queryKey: ["pending-vendors"] });
       queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
     },
     onError: (e) => setError(getErrorMessage(e)),
   });
+  const items = pending.data?.items || [];
+  const total = pending.data?.total ?? 0;
+  const pages = pending.data?.pages ?? 0;
   return (
     <div>
       <PageHeader
@@ -204,7 +212,7 @@ function VendorApprovals() {
       <div className="mb-5 flex items-center justify-between rounded-card border border-brand-100 bg-brand-50 p-4">
         <div>
           <p className="text-sm font-semibold text-brand-900">
-            {pending.data?.length || 0} applications waiting
+            {total} applications waiting
           </p>
           <p className="mt-1 text-xs text-brand-800">
             Approved vendors can immediately manage their catalogue.
@@ -224,78 +232,103 @@ function VendorApprovals() {
         </div>
       ) : pending.isError ? (
         <ErrorState onRetry={pending.refetch} />
-      ) : !pending.data?.length ? (
+      ) : !items.length ? (
         <EmptyState
           title="No pending applications"
           description="New vendor applications will show up here."
         />
       ) : (
-        <div className="space-y-4">
-          {pending.data.map((vendor) => (
-            <article
-              key={vendor.uid}
-              className="rounded-card border border-line bg-white p-5 sm:p-6"
-            >
-              <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex gap-4">
-                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50 text-lg font-bold text-brand-600">
-                    {vendor.store_name?.[0]}
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-bold">{vendor.store_name}</h2>
-                      <Badge tone="warning">pending</Badge>
+        <>
+          <div className="space-y-4">
+            {items.map((vendor) => (
+              <article
+                key={vendor.uid}
+                className="rounded-card border border-line bg-white p-5 sm:p-6"
+              >
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex gap-4">
+                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50 text-lg font-bold text-brand-600">
+                      {vendor.store_name?.[0]}
                     </div>
-                    <p className="mt-1 text-sm text-muted">
-                      /{vendor.slug} Â· Submitted{" "}
-                      {formatDate(vendor.created_at)}
-                    </p>
-                    <p className="mt-4 max-w-2xl text-sm leading-6 text-ink">
-                      {vendor.description || "No description provided."}
-                    </p>
-                    {vendor.logo_url && (
-                      <a
-                        href={vendor.logo_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-block text-xs font-semibold text-brand-600"
-                      >
-                        View logo URL
-                      </a>
-                    )}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="font-bold">{vendor.store_name}</h2>
+                        <Badge tone="warning">pending</Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted">
+                        /{vendor.slug} &middot; Submitted{" "}
+                        {formatDate(vendor.created_at)}
+                      </p>
+                      <p className="mt-4 max-w-2xl text-sm leading-6 text-ink">
+                        {vendor.description || "No description provided."}
+                      </p>
+                      {vendor.logo_url && (
+                        <a
+                          href={vendor.logo_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 inline-block text-xs font-semibold text-brand-600"
+                        >
+                          View logo URL
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      loading={
+                        action.isPending &&
+                        action.variables?.uid === vendor.uid &&
+                        action.variables?.type === "approve"
+                      }
+                      onClick={() =>
+                        action.mutate({ uid: vendor.uid, type: "approve" })
+                      }
+                    >
+                      <Check size={16} /> Approve
+                    </Button>
+                    <Button
+                      variant="danger"
+                      loading={
+                        action.isPending &&
+                        action.variables?.uid === vendor.uid &&
+                        action.variables?.type === "suspend"
+                      }
+                      onClick={() =>
+                        action.mutate({ uid: vendor.uid, type: "suspend" })
+                      }
+                    >
+                      <X size={16} /> Reject
+                    </Button>
                   </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    loading={
-                      action.isPending &&
-                      action.variables?.uid === vendor.uid &&
-                      action.variables?.type === "approve"
-                    }
-                    onClick={() =>
-                      action.mutate({ uid: vendor.uid, type: "approve" })
-                    }
-                  >
-                    <Check size={16} /> Approve
-                  </Button>
-                  <Button
-                    variant="danger"
-                    loading={
-                      action.isPending &&
-                      action.variables?.uid === vendor.uid &&
-                      action.variables?.type === "suspend"
-                    }
-                    onClick={() =>
-                      action.mutate({ uid: vendor.uid, type: "suspend" })
-                    }
-                  >
-                    <X size={16} /> Reject
-                  </Button>
-                </div>
+              </article>
+            ))}
+          </div>
+          {pages > 1 && (
+            <div className="mt-6 flex items-center justify-between border-t border-line pt-4 text-sm">
+              <span className="text-muted">
+                Page {page} of {pages} ({total} pending)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={page >= pages}
+                  onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                >
+                  Next
+                </Button>
               </div>
-            </article>
-          ))}
-        </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

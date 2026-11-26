@@ -48,7 +48,8 @@ export const checkout = ({ payload, idempotencyKey }) =>
       headers: { "Idempotency-Key": idempotencyKey },
     })
     .then((r) => r.data);
-export const getOrders = () => api.get("/orders").then((r) => r.data);
+export const getOrders = (params = {}) =>
+  api.get("/orders", { params }).then((r) => r.data);
 export const getOrder = (id) => api.get(`/orders/${id}`).then((r) => r.data);
 export const cancelOrder = (id) =>
   api.post(`/orders/${id}/cancel`).then((r) => r.data);

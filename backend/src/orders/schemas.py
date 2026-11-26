@@ -2,12 +2,20 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class DirectCheckoutItem(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(1, ge=1)
 
 
 class CheckoutRequest(BaseModel):
     address_id: uuid.UUID
-    payment_method: str = "cod"  # cod | online_mock
+    payment_method: Literal["cod", "online_mock"] = "cod"
+    direct_item: DirectCheckoutItem | None = None
 
 
 class OrderItemOut(BaseModel):

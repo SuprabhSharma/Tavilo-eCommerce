@@ -71,8 +71,10 @@ export const updateVendorSubOrderStatus = (subUid, status) =>
     .patch(`/orders/vendor/sub-orders/${subUid}/status`, { status })
     .then((r) => r.data);
 export const getAdminStats = () => api.get("/admin/stats").then((r) => r.data);
-export const getPendingVendors = () =>
-  api.get("/vendors/admin/pending").then((r) => r.data);
+export const getPendingVendors = (params = {}) =>
+  api.get("/vendors/admin/pending", { params }).then((r) => r.data);
+export const getPendingVendorsPage = (params = {}) =>
+  api.get("/vendors/admin/pending/page", { params }).then((r) => r.data);
 export const approveVendor = (uid) =>
   api.patch(`/vendors/admin/${uid}/approve`).then((r) => r.data);
 export const suspendVendor = (uid) =>

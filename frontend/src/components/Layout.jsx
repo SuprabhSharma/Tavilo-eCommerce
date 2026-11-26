@@ -14,6 +14,7 @@ import {
   Menu,
   Search,
   ShoppingBag,
+  ShoppingCart,
   Store,
   UserRound,
   X,
@@ -27,10 +28,10 @@ import { ProductActionStateProvider } from "./ProductActionState";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
-  { to: "/products", label: "Shop", icon: Store },
+  { to: "/products", label: "Shop", icon: ShoppingBag },
   { to: "/stores", label: "Stores", icon: Store },
   { to: "/wishlist", label: "Wishlist", icon: Heart },
-  { to: "/cart", label: "Cart", icon: ShoppingBag },
+  { to: "/cart", label: "Cart", icon: ShoppingCart },
   { to: "/account", label: "Account", icon: UserRound },
 ];
 // Keep the fixed mobile bar to five primary actions; Stores stays reachable
@@ -83,6 +84,7 @@ export default function ShopLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const isCheckoutPage = location.pathname.startsWith("/checkout");
   const urlQuery = location.pathname === "/search"
     ? new URLSearchParams(location.search).get("q") || ""
     : "";
@@ -236,8 +238,9 @@ export default function ShopLayout() {
   const guestWishlistCount = useGuestStore((state) => state.wishlist.items.length);
   const wishlistCount = isAuthenticated ? authWishlistCount : guestWishlistCount;
   return (
-    <div className="min-h-screen bg-[#f4f8fb] pb-20 text-ink md:pb-0">
-      <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md shadow-[0_4px_20px_-4px_rgba(15,23,42,0.06),inset_0_-1px_0_rgba(255,255,255,0.8)]">
+    <div className={`min-h-screen bg-[#f4f8fb] text-ink ${isCheckoutPage ? "pb-0" : "pb-20 md:pb-0"}`}>
+      {!isCheckoutPage && (
+        <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 backdrop-blur-md shadow-[0_4px_20px_-4px_rgba(15,23,42,0.06),inset_0_-1px_0_rgba(255,255,255,0.8)]">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
           <button
             aria-label="Open menu"
@@ -346,7 +349,7 @@ export default function ShopLayout() {
               aria-label="Cart"
               className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200/80 bg-white shadow-tactile text-ink hover:bg-slate-50 active:scale-95 transition"
             >
-              <ShoppingBag size={20} />
+              <ShoppingCart size={20} />
               {count > 0 && (
                 <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
                   {count}
@@ -372,6 +375,7 @@ export default function ShopLayout() {
           </div>
         </div>
       </header>
+      )}
       {menuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
@@ -504,51 +508,55 @@ export default function ShopLayout() {
           <Outlet />
         </ProductActionStateProvider>
       </main>
-      <footer className="border-t border-line bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-center text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left lg:px-8">
-          <p>
-            <span className="font-semibold text-ink">Tavilo</span> &mdash;{" "}
-            {brand.tagline}
-          </p>
-          <p>
-            Copyright &copy; {new Date().getFullYear()} Suprabh Sharma.{" "}
-            <a
-              href="tel:+919756455554"
-              className="font-medium text-brand-700 hover:text-brand-600"
+      {!isCheckoutPage && (
+        <footer className="border-t border-line bg-white">
+          <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-6 text-center text-xs text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:text-left lg:px-8">
+            <p>
+              <span className="font-semibold text-ink">Tavilo</span> &mdash;{" "}
+              {brand.tagline}
+            </p>
+            <p>
+              Copyright &copy; {new Date().getFullYear()} Suprabh Sharma.{" "}
+              <a
+                href="tel:+919756455554"
+                className="font-medium text-brand-700 hover:text-brand-600"
+              >
+                Contact: 9756455554
+              </a>
+            </p>
+          </div>
+        </footer>
+      )}
+      {!isCheckoutPage && (
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4.25rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-slate-200/90 bg-white/95 backdrop-blur-lg px-2 pt-2 shadow-[0_-8px_24px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] md:hidden">
+          {mobileNav.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `relative flex min-w-14 flex-col items-center gap-1 rounded-xl px-2 py-1 text-[11px] transition-all active:scale-95 ${
+                  isActive
+                    ? "font-extrabold text-brand-700 bg-brand-50 shadow-[0_1px_3px_rgba(11,181,176,0.18),inset_0_1px_0_rgba(255,255,255,0.9)]"
+                    : "font-semibold text-slate-500 hover:text-ink"
+                }`
+              }
             >
-              Contact: 9756455554
-            </a>
-          </p>
-        </div>
-      </footer>
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(4.25rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-slate-200/90 bg-white/95 backdrop-blur-lg px-2 pt-2 shadow-[0_-8px_24px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.9)] md:hidden">
-        {mobileNav.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              `relative flex min-w-14 flex-col items-center gap-1 rounded-xl px-2 py-1 text-[11px] transition-all active:scale-95 ${
-                isActive
-                  ? "font-extrabold text-brand-700 bg-brand-50 shadow-[0_1px_3px_rgba(11,181,176,0.18),inset_0_1px_0_rgba(255,255,255,0.9)]"
-                  : "font-semibold text-slate-500 hover:text-ink"
-              }`
-            }
-          >
-            <Icon size={20} strokeWidth={2.2} />
-            <span>{label}</span>
-            {to === "/cart" && count > 0 && (
-              <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
-                {count}
-              </span>
-            )}
-            {to === "/wishlist" && wishlistCount > 0 && (
-              <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
-                {wishlistCount}
-              </span>
-            )}
-          </NavLink>
-        ))}
-      </nav>
+              <Icon size={20} strokeWidth={2.2} />
+              <span>{label}</span>
+              {to === "/cart" && count > 0 && (
+                <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
+                  {count}
+                </span>
+              )}
+              {to === "/wishlist" && wishlistCount > 0 && (
+                <span className="absolute right-1 top-0 grid h-4 min-w-4 items-center rounded-full bg-brand-600 px-1 text-[9px] font-extrabold text-white ring-2 ring-white shadow-sm">
+                  {wishlistCount}
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

@@ -27,6 +27,12 @@ class ProductImageOut(BaseModel):
     height: int | None = None
 
 
+class _VendorStatusRef(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str = "approved"
+
+
 class ProductSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -36,6 +42,8 @@ class ProductSummaryOut(BaseModel):
     price: Decimal
     mrp: Decimal | None = None
     stock: int = Field(exclude=True)
+    status: str = Field(default="active", exclude=True)
+    vendor: _VendorStatusRef | None = Field(default=None, exclude=True)
     # Vendor-set per-order cap (NULL = no cap beyond real stock).
     # Exposed so the cart UI can disable + before hitting the backend.
     max_order_qty: int | None = None
@@ -44,7 +52,8 @@ class ProductSummaryOut(BaseModel):
     @computed_field
     @property
     def is_available(self) -> bool:
-        return self.stock > 0
+        vendor_ok = self.vendor is None or self.vendor.status == "approved"
+        return self.status == "active" and vendor_ok and self.stock > 0
 
     @computed_field
     @property
@@ -54,6 +63,8 @@ class ProductSummaryOut(BaseModel):
         Capped to vendor's max_order_qty when set.
         Never goes below 0.
         """
+        if not self.is_available:
+            return 0
         effective_max = self.max_order_qty if self.max_order_qty is not None else self.stock
         return max(0, min(self.stock, effective_max))
 
@@ -250,6 +261,8 @@ class ProductPublicOut(BaseModel):
         Capped to vendor's max_order_qty when set.
         Never goes below 0.
         """
+        if not self.is_available:
+            return 0
         effective_max = self.max_order_qty if self.max_order_qty is not None else self.stock
         return max(0, min(self.stock, effective_max))
 

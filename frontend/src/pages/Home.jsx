@@ -16,8 +16,8 @@ export default function Home() {
     gcTime: 24 * 60 * 60 * 1000,
   });
   const allProducts = useQuery({
-    queryKey: ["products", { page: 1, page_size: 8 }],
-    queryFn: () => listProducts({ page: 1, page_size: 8 }),
+    queryKey: ["products", { sort: "newest", page_size: 8 }],
+    queryFn: () => listProducts({ sort: "newest", page_size: 8 }),
   });
   return (
     <div>

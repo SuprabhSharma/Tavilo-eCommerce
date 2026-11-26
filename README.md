@@ -17,9 +17,9 @@
 ![Checkout](https://img.shields.io/badge/checkout-atomic_·_idempotent-f5a623?style=flat-square "Stock-safe, retry-safe checkout")
 ![Auth](https://img.shields.io/badge/auth-JWT_+_rotating_HttpOnly_refresh-10284b?style=flat-square "Access token in memory, refresh token in HttpOnly cookie")
 ![Roles](https://img.shields.io/badge/roles-customer_·_vendor_·_admin-0bb5b0?style=flat-square "Role-based access control")
-![Tables](https://img.shields.io/badge/tables-19-5eead4?style=flat-square "19 PostgreSQL tables")
-![Endpoints](https://img.shields.io/badge/endpoints-63-0bb5b0?style=flat-square "63 HTTP routes")
-![Migrations](https://img.shields.io/badge/Alembic-20_revisions-6BA81E?style=flat-square "20 schema migrations")
+![Tables](https://img.shields.io/badge/tables-20-5eead4?style=flat-square "20 PostgreSQL tables")
+![Endpoints](https://img.shields.io/badge/endpoints-69-0bb5b0?style=flat-square "69 HTTP operations")
+![Migrations](https://img.shields.io/badge/Alembic-30_revisions-6BA81E?style=flat-square "30 schema migrations")
 
 <br/>
 
@@ -66,8 +66,8 @@ flowchart LR
 
 | | Role | What they can do |
 |:-:|---|---|
-| 🛍️ | **Customer** | Search, filter and sort a paginated catalogue · server-side cart and wishlist · saved addresses · multi-store checkout (cash on delivery or demo online payment) · track and cancel orders · leave a review once an order is delivered |
-| 🏪 | **Vendor** | Apply for a store · manage products with multi-image upload · publish service offerings · edit the public store page · fulfil own sub-orders `placed → confirmed → shipped → delivered`, or cancel before shipping |
+| 🛍️ | **Customer** | Search, filter and sort a keyset-paginated catalogue with windowed infinite scroll · guest cart & wishlist in `localStorage` with idempotent merge on login · Direct Buy Now (isolated from persistent cart) · per-product order quantity caps · saved addresses · multi-store checkout (COD or demo online payment) · real-time cross-tab order tracking, cancellation, and verified-delivery reviews |
+| 🏪 | **Vendor** | Apply for a store · manage products with multi-size WebP upload and per-order quantity caps (`max_order_qty`) · publish service offerings · edit the public store page · inventory summary & paginated order management (`placed → confirmed → shipped → delivered`, or cancel before shipping) |
 | 🛡️ | **Admin** | Platform stats · approve or suspend vendors · change user roles · manage a two-level category tree · every sensitive action lands in an **audit log** |
 
 ---
@@ -404,18 +404,24 @@ flowchart LR
 
 | | Capability | How it works |
 |:-:|---|---|
-| 🔒 | **Concurrency-safe stock** | Guarded `UPDATE … WHERE stock >= :qty AND status = 'active' RETURNING …`, applied in sorted product order to avoid deadlocks; `CHECK (stock >= 0)` as backstop |
+| 🔒 | **Concurrency-safe stock** | Guarded `UPDATE … WHERE stock >= :qty AND status = 'active' AND (max_order_qty IS NULL OR max_order_qty >= :qty) RETURNING …`, applied in sorted product order to avoid deadlocks; `CHECK (stock >= 0)` as backstop |
 | ♻️ | **Idempotent checkout** | `Idempotency-Key` + unique `(user_id, idempotency_key)`; a retry returns the original order (`200`) instead of creating a duplicate (`201`) |
-| 🧱 | **Row-level locking** | `SELECT … FOR UPDATE` on order → sub-orders → products so cancels and vendor status changes cannot race |
-| 📦 | **Stock restoration** | Automatic on customer cancel and on vendor cancel of a `placed` / `confirmed` sub-order |
+| ⚡ | **Direct Buy Now** | Isolated single-item checkout via `direct_item` without overwriting or clearing the user's persistent cart; live stock re-validated at checkout |
+| 🛒 | **Guest shopping & merge** | `localStorage`-backed guest cart & wishlist with cross-tab sync and idempotent `POST /cart/merge` (`GuestCartMergeReceipt`) reporting stock/cap conflicts |
+| 🎯 | **Per-order quantity caps** | Optional vendor-configured `max_order_qty` enforced identically in PostgreSQL (`CHECK >= 1`), cart mutations, guest merge, checkout, and UI controls |
+| 🚀 | **Keyset & windowed scroll** | Cursor-based keyset pagination (`include_total=false`), `pg_trgm` search indexes, and a windowed infinite-scroll grid with per-card `useSyncExternalStore` isolation |
+| 🧱 | **Row-level locking** | Strict `Cart → Product → CartItem` and `Order → SubOrder → Product` lock ordering so concurrent cart updates, cancels, and vendor status changes cannot race |
+| 📦 | **Stock restoration** | Atomic `UPDATE products SET stock = stock + :qty` on customer cancel and on vendor cancel of a `placed` / `confirmed` sub-order |
+| 📡 | **Cross-tab order sync** | `BroadcastChannel` + `localStorage` fallback syncs order status and cancellations immediately across open tabs |
 | 📧 | **Verify-then-create signup** | Real `users` row only after email confirmation; tokens are random, stored as **SHA-256 hashes**, expire in 24 h, single-use |
 | 🛡️ | **Scanner-proof links** | Token travels in the URL **fragment**, so it never reaches server or proxy logs |
 | 🔁 | **Rotating refresh tokens** | `HttpOnly` cookie scoped to `/api/v1/auth`; every refresh revokes the old `jti` |
 | 🧬 | **Mass session invalidation** | `users.session_version` is embedded in every JWT — bump it and all sessions die |
-| 🖼️ | **Gated image delivery** | WebP re-encode, ≤ 1600 px; published images are public-cacheable, drafts need a short-lived signed token |
+| 🖼️ | **Gated image delivery** | Multi-size WebP variants (`160` / `480` / `800` / `1600` px) with `srcset`; published images are public-cacheable, drafts need a short-lived signed token |
+| 🚦 | **Redis rate limiting** | Sliding-window rate limits on auth, catalog reads, and vendor uploads (`X-Forwarded-For` / `CF-Connecting-IP` aware) |
 | ⭐ | **Verified-purchase reviews** | Only buyers with a **delivered** sub-order can review; one review per product |
 | 📝 | **Audit trail** | `audit_logs` records admin logins, role changes and vendor decisions with actor and target |
-| 🩺 | **Operability** | `/health` liveness · `/ready` DB-backed readiness · JSON logs in production · container healthchecks |
+| 🩺 | **Operability** | `/health` liveness · `/ready` DB + Redis readiness · JSON logs in production · container healthchecks |
 
 ---
 
@@ -462,7 +468,8 @@ erDiagram
         string slug UK
         decimal price
         int stock "CHECK stock >= 0"
-        string status "draft | active"
+        int max_order_qty "nullable · CHECK >= 1"
+        string status "draft | active | archived"
     }
     ORDERS {
         uuid uid PK
@@ -480,7 +487,7 @@ erDiagram
 ```
 
 <details>
-<summary><b>▸ All 19 tables</b></summary>
+<summary><b>▸ All 20 tables</b></summary>
 
 <br/>
 
@@ -493,16 +500,17 @@ erDiagram
 | | `audit_logs` | Record of security-sensitive actions |
 | **Marketplace** | `vendors` | Store profile, unique slug, approval status, 1:1 with a user |
 | | `categories` | Two-level self-referential tree |
-| | `products` · `product_images` | Price, stock, status, rating aggregate · ordered images |
+| | `products` · `product_images` | Price, stock, `max_order_qty` cap, status, rating aggregate · ordered multi-size images |
 | | `services` · `service_images` | Vendor service offerings |
-| **Shopping** | `carts` · `cart_items` | Server-side cart per user |
-| | `wishlists` · `addresses` | Saved products · shipping addresses |
+| **Shopping** | `carts` · `cart_items` | Server-side cart per user (deterministic `created_at` ordering) |
+| | `guest_cart_merge_receipts` | Idempotency receipt `(user_id, guest_cart_id)` + cached merge conflicts |
+| | `wishlists` · `addresses` | Saved products · shipping addresses (partial unique index for single default) |
 | **Orders** | `orders` | Parent order: total, payment, address snapshot, idempotency key |
 | | `sub_orders` | One per vendor per order, with its own status and subtotal |
 | | `order_items` | Line items with title and price **snapshots** |
 | **Trust** | `reviews` | Rating 1–5, text, verified-purchase flag |
 
-Schema history lives in `backend/migrations/versions/` — 20 Alembic revisions covering the security audit, order concurrency safety, pending registrations, the marketplace schema and review-integrity repairs. `backend/scripts/` holds helpers to inspect and repair a live database.
+Schema history lives in `backend/migrations/versions/` — 30 Alembic revisions covering the security audit, order concurrency safety, pending registrations, guest merge receipts, keyset & `pg_trgm` search indexes, per-order caps, and review-integrity repairs. `backend/scripts/` holds helpers to inspect and repair a live database.
 
 </details>
 
@@ -581,13 +589,14 @@ Paths below are prefixed with `/api/v1`. Access legend: 🌍 public · 👤 veri
 
 | Method | Path | Access | Description |
 |---|---|:-:|---|
-| GET | `/products` | 🌍 | Filters `q` `category` `vendor` `min_price` `max_price` `in_stock` · `sort` · `page` · `page_size` |
+| GET | `/products` | 🌍 | Filters `q` `category` `vendor` `ids` `min_price` `max_price` `in_stock` · `sort` · `cursor` · `include_total` |
 | GET | `/products/slug/{slug}` | 🌍 | Product detail |
 | GET | `/products/images/{filename}` | 🌍* | Published images public; drafts need a signed `?token=` |
-| GET | `/products/vendor/me` | 🏪 | Own products |
-| POST | `/products/vendor/me/images` | 🏪 | Upload up to 10 images, 10 MB each |
+| GET | `/products/vendor/me` | 🏪 | Own products (keyset `cursor` or numbered `page` + `q` search) |
+| GET | `/products/vendor/me/summary` | 🏪 | Aggregate vendor inventory & low-stock summary |
+| POST | `/products/vendor/me/images` | 🏪 | Upload up to 10 images, 10 MB each (generates multi-size WebP variants) |
 | POST | `/products/vendor/me` | 🏪 | Create a product |
-| PATCH · DELETE | `/products/vendor/me/{uid}` | 🏪 | Update / delete own product |
+| PATCH · DELETE | `/products/vendor/me/{uid}` | 🏪 | Update / archive own product |
 | GET | `/categories` · `/categories/{slug}` | 🌍 | Category tree / one category |
 | POST · PATCH · DELETE | `/categories` · `/categories/{uid}` | 🛡️ | Manage categories |
 | GET | `/services` | 🌍 | Service offerings |
@@ -607,16 +616,18 @@ Paths below are prefixed with `/api/v1`. Access legend: 🌍 public · 👤 veri
 
 | Method | Path | Access | Description |
 |---|---|:-:|---|
-| GET · POST | `/cart` | 👤 | View cart / add item |
+| GET · POST · PUT | `/cart` | 👤 | View cart / add item / idempotent upsert |
+| POST | `/cart/merge` | 👤 | Idempotent guest-to-user cart & wishlist merge (with conflict report) |
 | PATCH · DELETE | `/cart/{item_uid}` | 👤 | Change quantity / remove |
 | GET · POST | `/wishlist` | 👤 | List / add |
 | DELETE | `/wishlist/{product_id}` | 👤 | Remove |
 | GET · POST | `/addresses` | 👤 | List / create |
 | PATCH · DELETE | `/addresses/{uid}` | 👤 | Update / delete |
-| POST | `/orders/checkout` | 👤 | Place an order — honours `Idempotency-Key` (`201` new · `200` replay) |
-| GET | `/orders` · `/orders/{uid}` | 👤 | History / detail with sub-orders |
-| POST | `/orders/{uid}/cancel` | 👤 | Cancel while every sub-order is `placed` |
+| POST | `/orders/checkout` | 👤 | Place an order (cart or `direct_item`) — honours `Idempotency-Key` (`201` new · `200` replay) |
+| GET | `/orders` · `/orders/{uid}` | 👤 | Paginated history / detail with sub-orders |
+| POST | `/orders/{uid}/cancel` | 👤 | Cancel while no sub-order is shipped or delivered |
 | GET | `/orders/vendor` | 🏪 | The vendor's incoming sub-orders |
+| GET | `/orders/vendor/page` | 🏪 | Paginated, searchable vendor sub-orders with `status_counts` |
 | PATCH | `/orders/vendor/sub-orders/{sub_uid}/status` | 🏪 | Advance or cancel a sub-order |
 
 </details>
@@ -630,14 +641,15 @@ Paths below are prefixed with `/api/v1`. Access legend: 🌍 public · 👤 veri
 |---|---|:-:|---|
 | POST | `/vendors/apply` | 👤 | Apply for a store |
 | GET · PATCH | `/vendors/me/profile` | 🏪 | Own store profile |
+| GET | `/vendors` | 🌍 | Keyset-paginated public store directory (`q`, `cursor`, `limit`) |
 | GET | `/vendors/{slug}` | 🌍 | Public store page |
-| GET | `/vendors/admin/pending` | 🛡️ | Pending applications |
+| GET | `/vendors/admin/pending` · `/pending/page` | 🛡️ | Pending applications (limit/offset & paginated) |
 | PATCH | `/vendors/admin/{uid}/approve` · `/suspend` | 🛡️ | Decide an application (audited) |
 | GET | `/admin/stats` | 🛡️ | Users, vendors, products, orders, revenue |
 | GET | `/admin/users` | 🛡️ | All users |
 | PATCH | `/admin/users/{uid}/role` | 🛡️ | Change a role (audited) |
 | GET | `/health` (no prefix) | 🌍 | Liveness |
-| GET | `/ready` (no prefix) | 🌍 | Readiness — `503` if the database is unreachable |
+| GET | `/ready` (no prefix) | 🌍 | Readiness — `503` if PostgreSQL or Redis is unreachable |
 
 </details>
 
@@ -728,6 +740,7 @@ Creates one admin (password from `ADMIN_BOOTSTRAP_PASSWORD`), three approved ven
 ```bash
 npm run build            # production frontend build
 npm run lint             # ESLint, zero warnings allowed
+cd backend && pytest     # async backend security, concurrency & contract tests
 uv run python -m alembic upgrade head  # apply database migrations
 uv run python -m alembic revision --autogenerate -m "describe change"  # create a migration
 ```
@@ -880,13 +893,14 @@ Tavilo-eCommerce/
 │   │   ├── db/               models · session · seed
 │   │   ├── audit.py  mail.py  middleware.py  errors.py  config.py
 │   │   └── __init__.py       FastAPI app, lifespan, router mounts
-│   ├── migrations/           20 Alembic revisions
+│   ├── migrations/           30 Alembic revisions
+│   ├── tests/                14+ async security, concurrency & contract test suites
 │   ├── scripts/              live-schema inspect / repair helpers
 │   ├── uploads/              media store (gated, not a public mount)
 │   ├── Dockerfile            multi-stage · non-root · healthcheck
 │   └── pyproject.toml  requirements.txt  alembic.ini
 ├── frontend/
-│   ├── src/                  pages · components · api · store · lib · config
+│   ├── src/                  pages · components · hooks · api · store · lib · config
 │   ├── Dockerfile            Vite build → Nginx runtime
 │   ├── nginx.conf            TLS · headers · gzip · proxy · SPA fallback
 │   └── vite.config.js
@@ -903,10 +917,11 @@ Tavilo-eCommerce/
 
 ## 🗺️ Roadmap
 
-What is **not** here yet — stated plainly:
+What is **not** here yet — and what has recently shipped:
 
-- [ ] Automated tests (backend and frontend) and a CI pipeline
-- [ ] Rate limiting on login and password-reset endpoints
+- [x] Automated backend security, concurrency, and API contract tests (`backend/tests/`) + frontend ESLint/build checks
+- [x] Redis-backed rate limiting on auth, catalog, and vendor upload endpoints
+- [ ] Automated frontend E2E tests and a CI pipeline
 - [ ] A real payment gateway (today: cash on delivery and an always-succeeds `online_mock`)
 - [ ] Order-status emails and vendor notifications
 - [ ] `backend/.env.example` template

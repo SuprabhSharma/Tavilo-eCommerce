@@ -22,12 +22,22 @@ export default function Cart() {
   const loggedIn = Boolean(accessToken);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const updateInFlightRef = useRef(false);
+
+  // Clear any abandoned direct Buy Now session item when browsing Cart
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem("direct_buy_item");
+    } catch {}
+  }, []);
 
   // ── Authenticated Cart ─────────────────────────────────────────────────────
   const authQuery = useQuery({
     queryKey: ["cart"],
     queryFn: getCart,
     enabled: loggedIn,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   const removeMutation = useMutation({
@@ -53,6 +63,9 @@ export default function Cart() {
         }));
       }
     },
+    onSettled: () => {
+      updateInFlightRef.current = false;
+    },
   });
 
   // ── Guest Cart ─────────────────────────────────────────────────────────────
@@ -69,6 +82,8 @@ export default function Cart() {
     queryKey: ["guest-cart-products", guestProductIds],
     queryFn: () => getProductsByIds(guestProductIds),
     enabled: !loggedIn && guestProductIds.length > 0,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   // Construct items for display
@@ -76,7 +91,13 @@ export default function Cart() {
     if (loggedIn) {
       const items = authQuery.data?.items || [];
       const sub = authQuery.data?.subtotal || 0;
-      return { data: items, subtotal: sub, hasStockIssues: false };
+      const stockIssue = items.some(
+        (i) =>
+          (i.product && !i.product.is_available) ||
+          (typeof i.max_qty === "number" && (i.max_qty <= 0 || i.quantity > i.max_qty)) ||
+          i.isOutOfStock
+      );
+      return { data: items, subtotal: sub, hasStockIssues: stockIssue };
     }
 
     // Guest mode: ensure items are ordered with most recently added at the top
@@ -97,12 +118,18 @@ export default function Cart() {
 
     const items = sortedGuestItems.map((gItem) => {
       const product = productMap.get(gItem.productId);
+      const isUnavailable = guestProductsQuery.isSuccess && !product;
       const unitPrice = product ? Number(product.price) : 0;
       const lineTotal = unitPrice * gItem.quantity;
       sub += lineTotal;
 
-      const isOutOfStock = product && !product.is_available;
-      if (isOutOfStock) stockIssue = true;
+      const maxQty = product
+        ? (product.available_stock ?? product.stock ?? Infinity)
+        : (isUnavailable ? 0 : Infinity);
+      const isOutOfStock = isUnavailable || Boolean(product && !product.is_available) || maxQty <= 0;
+      if (isOutOfStock || (typeof maxQty === "number" && gItem.quantity > maxQty)) {
+        stockIssue = true;
+      }
 
       return {
         uid: gItem.productId,
@@ -110,19 +137,21 @@ export default function Cart() {
         quantity: gItem.quantity,
         unit_price: unitPrice,
         line_total: lineTotal,
-        product_title: product ? product.title : "Loading product details…",
+        product_title: product
+          ? product.title
+          : isUnavailable
+          ? "Product no longer available"
+          : "Loading product details…",
         product,
         isOutOfStock,
         // For guest mode, derive max_qty from server's available_stock
         // (= min(real_stock, vendor_max_order_qty)) returned by ProductPublicOut
-        max_qty: product
-          ? (product.available_stock ?? product.stock ?? Infinity)
-          : Infinity,
+        max_qty: maxQty,
       };
     });
 
     return { data: items, subtotal: sub, hasStockIssues: stockIssue };
-  }, [loggedIn, authQuery.data, guestItems, guestProductsQuery.data?.items]);
+  }, [loggedIn, authQuery.data, guestItems, guestProductsQuery.data?.items, guestProductsQuery.isSuccess]);
 
   const isLoading = !isReady || (loggedIn
     ? authQuery.isLoading
@@ -143,11 +172,13 @@ export default function Cart() {
   const handleUpdateQuantity = (item, newQuantity) => {
     if (newQuantity < 1) return;
     if (loggedIn) {
+      if (updateInFlightRef.current || updateMutation.isPending) return;
+      updateInFlightRef.current = true;
       updateMutation.mutate({ uid: item.uid, quantity: newQuantity });
     } else {
       // Guest: enforce cap client-side before writing to store
       const cap = item.max_qty;
-      if (typeof cap === "number" && newQuantity > cap) return;
+      if (typeof cap === "number" && (cap <= 0 || newQuantity > cap)) return;
       updateGuestQty(item.product_id, newQuantity);
     }
   };
@@ -215,13 +246,24 @@ export default function Cart() {
             </div>
             <Button
               className="mt-5 w-full"
-              disabled={hasStockIssues && loggedIn}
-              onClick={() =>
-                navigate(loggedIn ? "/checkout" : "/account?next=/checkout")
-              }
+              disabled={hasStockIssues}
+              onClick={() => {
+                if (hasStockIssues) return;
+                try {
+                  sessionStorage.removeItem("direct_buy_item");
+                } catch {}
+                navigate(loggedIn ? "/checkout" : "/account?next=/checkout", {
+                  state: { fromCart: true },
+                });
+              }}
             >
               Proceed to checkout
             </Button>
+            {hasStockIssues && (
+              <p className="mt-2.5 text-center text-xs font-medium text-red-600" role="alert">
+                Remove out-of-stock items or adjust quantities to continue
+              </p>
+            )}
             {!loggedIn && (
               <p className="mt-3 text-center text-xs text-muted">
                 Sign in to complete your order
@@ -252,7 +294,11 @@ export default function Cart() {
 function CartItemRow({ item, isUpdating, onUpdateQuantity, onRemove, errorInfo }) {
   const maxQty = item.max_qty ?? item.product?.available_stock ?? Infinity;
   const atLimit = item.quantity >= maxQty;
-  const isOutOfStock = item.isOutOfStock || (item.product && !item.product.is_available);
+  const isOutOfStock =
+    item.isOutOfStock ||
+    (item.product && !item.product.is_available) ||
+    (typeof maxQty === "number" && maxQty <= 0);
+  const exceedsStock = !isOutOfStock && typeof maxQty === "number" && item.quantity > maxQty;
 
   // Pop-up state for max-quantity notification
   const [popupMsg, setPopupMsg] = useState("");
@@ -282,7 +328,7 @@ function CartItemRow({ item, isUpdating, onUpdateQuantity, onRemove, errorInfo }
   }, [errorInfo]);
 
   const handleIncrease = () => {
-    if (isOutOfStock) return;
+    if (isUpdating || isOutOfStock || maxQty <= 0) return;
     if (atLimit) {
       // Trigger sleek e-commerce pop-up when attempting to exceed maximum quantity
       showPopup(`You can add maximum of ${maxQty} for this product`);
@@ -293,8 +339,13 @@ function CartItemRow({ item, isUpdating, onUpdateQuantity, onRemove, errorInfo }
   };
 
   const handleDecrease = () => {
+    if (isUpdating || item.quantity <= 1) return;
     setPopupMsg("");
-    onUpdateQuantity(item, item.quantity - 1);
+    const targetQty =
+      typeof maxQty === "number" && maxQty >= 1 && item.quantity > maxQty
+        ? Math.min(item.quantity - 1, maxQty)
+        : item.quantity - 1;
+    onUpdateQuantity(item, targetQty);
   };
 
   return (
@@ -347,10 +398,15 @@ function CartItemRow({ item, isUpdating, onUpdateQuantity, onRemove, errorInfo }
             className="mt-1 text-sm"
           />
 
-          {/* Out-of-stock indicator */}
+          {/* Out-of-stock / over-limit indicator */}
           {isOutOfStock && (
             <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-red-600" role="alert">
               <AlertTriangle size={14} /> Out of stock
+            </p>
+          )}
+          {exceedsStock && (
+            <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-amber-700" role="alert">
+              <AlertTriangle size={14} /> Only {maxQty} available — reduce quantity to continue
             </p>
           )}
 

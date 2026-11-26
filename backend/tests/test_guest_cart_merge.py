@@ -231,7 +231,42 @@ async def test_idempotent_retry_preserves_out_of_stock_conflicts(client, helpers
     assert d2["was_idempotent"] is True
     assert len(d2["cart"]["items"]) == 1
     assert d2["cart"]["items"][0]["quantity"] == 1
-    assert len(d2["conflicts"]) == 1
-    assert d2["conflicts"][0]["reason"] == "out_of_stock"
-    assert d2["conflicts"][0]["product_id"] == str(product_oos.uid)
+    assert len(data_conflict := d2["conflicts"]) == 1
+    assert data_conflict[0]["reason"] == "out_of_stock"
+    assert data_conflict[0]["product_id"] == str(product_oos.uid)
+
+
+@pytest.mark.asyncio
+async def test_guest_cart_merge_enforces_max_order_qty_and_deduplicates(client, helpers):
+    async with helpers["session_factory"]() as session:
+        _, vendor = await helpers["create_vendor"](session)
+        product = await helpers["create_product"](session, vendor, price="15.00", stock=10)
+        product.max_order_qty = 2
+        session.add(product)
+        await session.commit()
+        customer = await helpers["create_customer"](session)
+
+    payload = {
+        "guest_cart_id": str(uuid.uuid4()),
+        "cart_items": [
+            {"product_id": str(product.uid), "quantity": 2},
+            {"product_id": str(product.uid), "quantity": 2},
+        ],
+        "wishlist_product_ids": [str(product.uid), str(product.uid)],
+    }
+
+    res = await client.post(
+        API_CART_MERGE,
+        headers={"X-Test-User": str(customer.uid)},
+        json=payload,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["was_idempotent"] is False
+    assert len(data["cart"]["items"]) == 1
+    assert data["cart"]["items"][0]["quantity"] == 2
+    assert len(data["wishlist"]["items"]) == 1
+    assert len(data["conflicts"]) == 1
+    assert data["conflicts"][0]["reason"] == "quantity_capped"
+    assert data["conflicts"][0]["applied_quantity"] == 2
 

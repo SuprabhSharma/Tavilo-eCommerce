@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { getVendor, listProducts, listServices } from "../api/catalog";
 import ProductCard from "../components/ProductCard";
 import { BackLink, ProductGridSkeleton } from "../components/Page";
-import { ErrorState } from "../components/ui";
+import { Button, ErrorState } from "../components/ui";
 
 export default function VendorStore() {
   const { slug } = useParams();
@@ -11,14 +12,35 @@ export default function VendorStore() {
     queryKey: ["vendor", slug],
     queryFn: () => getVendor(slug),
   });
-  const products = useQuery({
-    queryKey: ["products", { vendor: slug }],
-    queryFn: () => listProducts({ vendor: slug, page_size: 20 }),
+  const products = useInfiniteQuery({
+    queryKey: ["products", { vendor: slug, page_size: 20, include_total: false }],
+    initialPageParam: null,
+    queryFn: ({ pageParam, signal }) =>
+      listProducts(
+        { vendor: slug, page_size: 20, include_total: false, cursor: pageParam || undefined },
+        signal,
+      ),
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.next_cursor : undefined,
   });
-  const services = useQuery({
-    queryKey: ["services", { vendor: slug }],
-    queryFn: () => listServices({ vendor: slug, page_size: 20 }),
+  const services = useInfiniteQuery({
+    queryKey: ["services", { vendor: slug, page_size: 12 }],
+    initialPageParam: 1,
+    queryFn: ({ pageParam }) =>
+      listServices({ vendor: slug, page: pageParam, page_size: 12 }),
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined,
   });
+
+  const productItems = useMemo(
+    () => products.data?.pages.flatMap((page) => page.items) ?? [],
+    [products.data],
+  );
+  const serviceItems = useMemo(
+    () => services.data?.pages.flatMap((page) => page.items) ?? [],
+    [services.data],
+  );
+
   if (vendor.isLoading)
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
@@ -54,37 +76,38 @@ export default function VendorStore() {
       <div className="mt-10">
         {products.isLoading ? (
           <ProductGridSkeleton />
-        ) : products.isError ? (
+        ) : products.isError && productItems.length === 0 ? (
           <ErrorState onRetry={products.refetch} />
         ) : (
           <>
-            <h2 className="mb-5 text-xl font-bold">
-              Store products{" "}
-              <span className="ml-2 text-sm font-normal text-muted">
-                {products.data.total}
-              </span>
-            </h2>
+            <h2 className="mb-5 text-xl font-bold">Store products</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {products.data.items.map((product) => (
-                <ProductCard key={product.uid} product={product} />
+              {productItems.map((product, idx) => (
+                <ProductCard key={product.uid} product={product} priority={idx < 4} />
               ))}
             </div>
+            {products.hasNextPage && (
+              <div className="mt-8 flex justify-center">
+                <Button
+                  variant="outline"
+                  loading={products.isFetchingNextPage}
+                  onClick={() => products.fetchNextPage()}
+                >
+                  Load more products
+                </Button>
+              </div>
+            )}
           </>
         )}
         {services.isLoading ? (
           <div className="mt-10">
             <ProductGridSkeleton />
           </div>
-        ) : services.isError ? null : services.data.total > 0 ? (
+        ) : services.isError ? null : serviceItems.length > 0 ? (
           <section className="mt-10">
-            <h2 className="mb-5 text-xl font-bold">
-              Services{" "}
-              <span className="ml-2 text-sm font-normal text-muted">
-                {services.data.total}
-              </span>
-            </h2>
+            <h2 className="mb-5 text-xl font-bold">Services</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {services.data.items.map((service) => (
+              {serviceItems.map((service) => (
                 <article
                   key={service.uid}
                   className="rounded-card border border-line bg-white p-5"
@@ -94,11 +117,22 @@ export default function VendorStore() {
                     {service.description || "Service offered by this store."}
                   </p>
                   <p className="mt-4 text-sm font-semibold text-brand-700">
-                    {service.price} Â· {service.duration_minutes} minutes
+                    {service.price} &middot; {service.duration_minutes} minutes
                   </p>
                 </article>
               ))}
             </div>
+            {services.hasNextPage && (
+              <div className="mt-6 flex justify-center">
+                <Button
+                  variant="outline"
+                  loading={services.isFetchingNextPage}
+                  onClick={() => services.fetchNextPage()}
+                >
+                  Load more services
+                </Button>
+              </div>
+            )}
           </section>
         ) : null}
       </div>

@@ -27,10 +27,18 @@ export default function ProductImage({
   height,
   draggable = false,
 }) {
+  const [prevSrc, setPrevSrc] = useState(src);
   const [retryWithBase, setRetryWithBase] = useState(false);
   const [errored, setErrored] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef(null);
+
+  if (src !== prevSrc) {
+    setPrevSrc(src);
+    setRetryWithBase(false);
+    setErrored(false);
+    setLoaded(false);
+  }
 
   // Check if image is already cached/complete on mount or when src changes
   useEffect(() => {

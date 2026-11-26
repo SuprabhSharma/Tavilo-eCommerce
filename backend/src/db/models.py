@@ -334,6 +334,11 @@ class Product(SQLModel, table=True):
     )
 
     __table_args__ = (
+        CheckConstraint("stock >= 0", name="ck_products_stock_non_negative"),
+        CheckConstraint(
+            "max_order_qty IS NULL OR max_order_qty >= 1",
+            name="ck_products_max_order_qty_positive",
+        ),
         Index("ix_products_vendor_id", "vendor_id"),
         Index("ix_products_category_id", "category_id"),
         Index("ix_products_status", "status"),
